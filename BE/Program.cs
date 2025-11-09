@@ -1,0 +1,78 @@
+﻿using Application.Abstractions.Services;
+using Application.Service;
+using Infrastructure.DI;
+using Application.Abstractions.SignalR;
+using Infrastructure.SignalR;
+using Microsoft.Extensions.Configuration;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Configuration.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+
+builder.Services.AddApplicationServices();
+builder.Services.AddInfrastructure(builder.Configuration);
+
+// sau khi đăng ký IRedisHealthCheckService
+builder.Services.AddSingleton<IRedisHealthCheckService, RedisHealthCheckService>();
+
+// đăng ký hosted service tường minh
+builder.Services.AddHostedService<Infrastructure.BackgroundServices.RedisHealthCheckBgrService>();
+
+
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+// SignalR with JSON protocol (optimized) and MessagePack for bandwidth saving
+builder.Services
+    .AddSignalR()
+    .AddJsonProtocol(options =>
+    {
+        options.PayloadSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+        options.PayloadSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+    })
+    .AddMessagePackProtocol();
+// Register SignalR adapter/context
+builder.Services.AddSingleton<INotificationHubContext, BE.SignalR.NotificationHubContext>();
+builder.Services.AddSingleton<INotificationHub, Infrastructure.SignalR.NotificationHubAdapter>();
+
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+    {
+        // For token-based (no credentials from browser): allow any origin
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
+    });
+});
+
+var app = builder.Build();
+
+// Middleware pipeline
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+app.UseHttpsRedirection();
+
+// IMPORTANT: call UseCors BEFORE authentication/authorization so preflight isn't blocked
+// Choose policy: if your FE uses cookies, use "FrontendWithCredentials", otherwise "AllowAll"
+app.UseCors("AllowAll");
+// app.UseCors("FrontendWithCredentials");
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapControllers();
+
+// Map SignalR hubs
+app.MapHub<BE.Hubs.NotificationHub>("/hubs/notifications");
+
+
+app.Run();

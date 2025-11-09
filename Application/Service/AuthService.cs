@@ -1,0 +1,210 @@
+﻿using Application.Abstractions.Common;
+using Application.Abstractions.Infrastructure;
+using Application.Abstractions.Repositories;
+using Application.Abstractions.Services;
+using Application.Contracts.Auth.Response;
+using Application.DTOs.Auth.Request;
+using Application.DTOs.Auth.Response;
+using Domain.Entities.Identity;
+using FluentValidation;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Configuration;
+using Shared.Common;
+using StackExchange.Redis;
+using System.Net;
+using System.Security.Claims;
+
+namespace Application.Service
+{
+    public class AuthService : IAuthService
+    {
+        private readonly IAuthRepository _authRepository;
+        private readonly ISessionRepository _sessionRepository;
+        private readonly IUnitOfWork _unitOfWork;
+        private readonly IJwtProvider _jwtProvider;
+        private readonly IRedisCacheService _redis;
+        private readonly IConfiguration _configuration;
+        private readonly IUserRepository _userRepository;
+        private readonly PasswordHasher<User> _passwordHasher;
+        private readonly IValidator<RegisterRequest> _registerValidator;
+        private readonly IValidator<LoginRequest> _loginValidator;
+
+        public AuthService(
+            IAuthRepository authRepository,
+            IUserRepository userRepository,
+            ISessionRepository sessionRepository,
+            IUnitOfWork unitOfWork,
+            IRedisCacheService redis,
+            IConfiguration configuration,
+            IJwtProvider jwtProvider,
+            IValidator<RegisterRequest> registerValidator,
+            IValidator<LoginRequest> loginValidator)
+        {
+            _authRepository = authRepository ?? throw new ArgumentNullException(nameof(authRepository));
+            _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
+            _sessionRepository = sessionRepository ?? throw new ArgumentNullException(nameof(sessionRepository));
+            _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
+            _jwtProvider = jwtProvider ?? throw new ArgumentNullException(nameof(jwtProvider));
+            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+            _redis = redis ?? throw new ArgumentNullException(nameof(redis));
+            _passwordHasher = new PasswordHasher<User>();
+            _registerValidator = registerValidator ?? throw new ArgumentNullException(nameof(registerValidator));
+            _loginValidator = loginValidator ?? throw new ArgumentNullException(nameof(loginValidator));
+        }
+
+        public async Task<Result<RegisterRespone>> RegisterAsync(RegisterRequest request, CancellationToken ct = default)
+        {
+            var validation = await _registerValidator.ValidateAsync(request, ct);
+            if (!validation.IsValid)
+                return Result<RegisterRespone>.FailureResult(validation.Errors.First().ErrorMessage, null, HttpStatusCode.BadRequest);
+
+            var emailNormalized = request.Email.Trim().ToLowerInvariant();
+            var existingUser = await _authRepository.GetUserByEmail(emailNormalized);
+            if (existingUser is not null)
+                return Result<RegisterRespone>.FailureResult("Email đã tồn tại trong hệ thống", null, HttpStatusCode.Conflict);
+
+            var user = new User
+            {
+                Email = request.Email,
+                DisplayName = request.DisplayName,
+                Timezone = "Asia/HaNoi",
+                IsActive = true
+            }; 
+
+            user.PasswordHash = _passwordHasher.HashPassword(user, request.Password);
+
+            //await _authRepository.AddAsync(user);
+            await _redis.RemoveAsync($"Email_{user.Email}");
+            await _redis.SetAsync($"Email_{user.Email}", user, TimeSpan.FromMinutes(5));
+            //await _unitOfWork.SaveChangesAsync();
+
+            var response = new RegisterRespone();
+
+            return Result<RegisterRespone>.SuccessResult(response, "Đăng ký thành công", HttpStatusCode.OK);
+        }
+
+        public async Task<Result<LoginResponse>> LoginAsync(LoginRequest request, CancellationToken ct = default)
+        {
+            var validation = await _loginValidator.ValidateAsync(request, ct);
+            if (!validation.IsValid)
+                return Result<LoginResponse>.FailureResult(validation.Errors.First().ErrorMessage, null, HttpStatusCode.BadRequest);
+
+            var user = await _authRepository.GetUserByEmail(request.Email);
+            if (user is null)
+                return Result<LoginResponse>.FailureResult("Sai email hoặc mật khẩu", null, HttpStatusCode.Unauthorized);
+
+            var verify = _passwordHasher.VerifyHashedPassword(user, user.PasswordHash!, request.Password);
+            if (verify == PasswordVerificationResult.Failed)
+                return Result<LoginResponse>.FailureResult("Sai email hoặc mật khẩu", null, HttpStatusCode.Unauthorized);
+
+            if (!user.IsActive)
+                return Result<LoginResponse>.FailureResult("Tài khoản bị khóa hoặc chưa kích hoạt", null, HttpStatusCode.Forbidden);
+
+            try
+            {
+                await _sessionRepository.DisableSessionAsync(user.Id,"New Season Provided");
+            }
+            catch (Exception ex)
+            {
+                return Result<LoginResponse>.FailureResult("Đăng nhập thất bại", ex.Message, HttpStatusCode.InternalServerError);
+            }
+
+
+            string sessionToken = await _jwtProvider.GenerateSessionToken(user);
+            await _sessionRepository.AddAsync(new Session
+            {
+                UserId = user.Id,
+                CreatedAt = DateTime.Now,
+                ExpiresAt = DateTime.Now.AddMinutes(double.Parse(_configuration["Session:ExpireTimeMinutes"] ?? throw new InvalidOperationException("Invalid format"))),
+                SessionToken = sessionToken
+            });
+
+
+            // Load OAuth providers only (lightweight) for richer response
+            var userWithProviders = await _userRepository.GetWithAuthProvidersAsync(user.Id, ct) ?? user;
+            var userDetail = new UserDetailDTO
+            {
+                UserId = user.Id,
+                Email = user.Email,
+                DisplayName = user.DisplayName,
+                Timezone = user.Timezone,
+                IsActive = user.IsActive,
+                AuthProviders = (userWithProviders.AuthProviders ?? new List<OAuthProvider>())
+                    .Select(p => new OAuthProviderDTO
+                    {
+                        Id = p.Id,
+                        Provider = p.Provider,
+                        ProviderUserId = p.ProviderUserId,
+                        ProviderEmail = p.ProviderEmail,
+                        DisplayName = p.DisplayName,
+                        IsPrimary = p.IsPrimary,
+                        LinkedAt = p.LinkedAt
+                    })
+                    .ToList()
+            };
+
+            var accessTokenExpirationMinutes = double.Parse(_configuration["Jwt:AccessTokenExpirationMinutes"]);
+            var refreshTokenExpirationDays = double.Parse(_configuration["Jwt:RefreshTokenExpirationDays"]);
+            //key
+            var refreshKey = $"JwtRefresh:user:{user.Id}";
+            var accessKey = $"JwtAccess:user:{user.Id}";
+
+            var existingRefresh = await _redis.GetAsync<string>(refreshKey);
+
+            string accessToken;
+            string refreshToken;
+
+            if (!string.IsNullOrEmpty(existingRefresh))
+            {
+                refreshToken = existingRefresh;
+
+                accessToken = await _jwtProvider.GenerateAccessToken(user);
+
+                await _redis.SetAsync(accessKey, accessToken, TimeSpan.FromMinutes(accessTokenExpirationMinutes));
+            }
+            else
+            {
+                var tokens = await _jwtProvider.GenerateToken(user); 
+                accessToken = tokens.AccessToken;
+                refreshToken = tokens.RefreshToken;
+
+                await _redis.SetAsync(accessKey, accessToken, TimeSpan.FromMinutes(accessTokenExpirationMinutes));
+                await _redis.SetAsync(refreshKey, refreshToken, TimeSpan.FromDays(refreshTokenExpirationDays));
+            }
+
+            var res = new LoginResponse
+            {
+                //AccessToken = accessToken,
+                sessionToken = sessionToken,
+                User = userDetail,
+                //RefreshToken = refreshToken,
+                //TokenExpiresAt = DateTime.Now.AddMinutes(accessTokenExpirationMinutes),
+                //RefreshTokenExpiresAt = DateTime.Now.AddDays(refreshTokenExpirationDays)
+            };
+            await _unitOfWork.SaveChangesAsync();
+            return Result<LoginResponse>.SuccessResult(res, "Đăng nhập thành công", HttpStatusCode.OK);
+        }
+
+
+        public Task<Result<LoginResponse>> RefreshTokenAsync(string refreshToken,string sessionToken,CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(refreshToken))
+                return Task.FromResult(Result<LoginResponse>.FailureResult("Refresh token không hợp lệ", null, HttpStatusCode.BadRequest));
+
+            return Task.FromResult(Result<LoginResponse>.FailureResult("Chức năng làm mới token chưa được hỗ trợ", "NOT_IMPLEMENTED", HttpStatusCode.NotImplemented));
+        }
+
+        public async Task<Result<string>> LogoutAsync(ClaimsPrincipal? principal = null, string? sessionToken = null, CancellationToken ct = default)
+        {
+            return Result<string>.SuccessResult("Đã đăng xuất", "Success", HttpStatusCode.OK);
+        }
+
+        public Task<Result<bool>> ValidateRefreshTokenAsync(string refreshToken, string? sessionId = null, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(refreshToken))
+                return Task.FromResult(Result<bool>.FailureResult("Refresh token không hợp lệ", null, HttpStatusCode.BadRequest));
+
+            return Task.FromResult(Result<bool>.FailureResult("Xác thực refresh token chưa được hỗ trợ", "NOT_IMPLEMENTED", HttpStatusCode.NotImplemented));
+        }
+    }
+}
