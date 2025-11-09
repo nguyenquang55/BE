@@ -52,5 +52,5 @@ namespace BE.Controllers
                 UserId = sessionRes.Data.UserId
             });
         }
-    }0 mn
+    }
 }
