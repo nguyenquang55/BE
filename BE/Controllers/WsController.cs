@@ -9,48 +9,17 @@ namespace BE.Controllers
     [Route("api/ws")]
     public class WsController : BaseController
     {
-        private readonly ISessionService _sessions;
+        private readonly IWsService _wsService;
 
-        public WsController(ISessionService sessions)
+        public WsController(IWsService wsService)
         {
-            _sessions = sessions;
+            _wsService = wsService;
         }
 
-        [HttpPost("authorize")]
-        public async Task<IActionResult> Authorize([FromBody] string? sessionToken = null, CancellationToken ct = default)
+        [HttpPost]
+        public async Task<IActionResult> ValidateExchangeRequest([FromBody] string? sessionToken = null, CancellationToken ct = default)
         {
-            if (string.IsNullOrWhiteSpace(sessionToken))
-            {
-                return BadRequest(new WsAuthorizeResponse
-                {
-                    Allowed = false,
-                    Message = "sessionToken is required"
-                });
-            }
-
-            var sessionRes = await _sessions.GetSessionByTokenAsync(sessionToken, ct);
-            if (!sessionRes.Success || sessionRes.Data == null)
-            {
-                return Unauthorized(new WsAuthorizeResponse
-                {
-                    Allowed = false,
-                    Message = sessionRes.Message ?? "Unauthorized"
-                });
-            }
-
-            var req = HttpContext.Request;
-            var wsScheme = req.Scheme == "https" ? "wss" : "ws";
-            var hubPath = "/hubs/notifications";
-            var url = $"{wsScheme}://{req.Host}{hubPath}?sessionToken={Uri.EscapeDataString(sessionToken)}";
-
-            return Ok(new WsAuthorizeResponse
-            {
-                Allowed = true,
-                Message = "Authorized",
-                Url = url,
-                Path = hubPath,
-                UserId = sessionRes.Data.UserId
-            });
+            return await HandleAsync(_wsService.ValidateWsRequest(sessionToken,HttpContext));
         }
     }
 }
