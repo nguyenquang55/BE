@@ -44,15 +44,14 @@ namespace Infrastructure.Persistence.Repositories
             if (string.IsNullOrWhiteSpace(Token))
                 throw new ArgumentException("Token không tồn tại", nameof(Token));
 
-            var session = await _context.Set<Session>().Where(s => s.SessionToken == Token).FirstOrDefaultAsync(ct);
+            var session = await _context.Set<Session>().Where(s => s.SessionToken == Token && s.IsRevoked == false).FirstOrDefaultAsync(ct);
             if (session == null)
                 return null;
 
-            // treat expired or revoked sessions as not found
-            if ((session.ExpiresAt.HasValue && session.ExpiresAt.Value <= DateTime.UtcNow) || session.IsRevoked)
-            {
-                return null;
-            }
+            //if ((session.ExpiresAt.HasValue && session.ExpiresAt.Value <= DateTime.UtcNow) || session.IsRevoked)
+            //{
+            //    return null;
+            //}
 
             return session;
         }

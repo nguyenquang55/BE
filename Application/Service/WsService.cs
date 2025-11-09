@@ -44,6 +44,7 @@ namespace Application.Service
             {
                 Allowed = true,
                 Message = "Authorized",
+                Url = url,
                 UserId = sessionRes.Data.UserId
             });
         }
