@@ -6,6 +6,7 @@ using Infrastructure.SignalR;
 using Microsoft.Extensions.Configuration;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Application.Abstractions.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -37,6 +38,9 @@ builder.Services
 // Register SignalR adapter/context
 builder.Services.AddSingleton<INotificationHubContext, BE.SignalR.NotificationHubContext>();
 builder.Services.AddSingleton<INotificationHub, Infrastructure.SignalR.NotificationHubAdapter>();
+
+// Message processing service
+builder.Services.AddSingleton<IMessageProcessingService, Application.Service.MessageProcessingService>();
 
 
 builder.Services.AddCors(options =>
