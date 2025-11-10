@@ -48,11 +48,10 @@ namespace BE.Controllers
             return await HandleAsync(_auth.RefreshTokenAsync(request.RefreshToken, request.SessionToken, ct));
         }
 
-        [Authorize]
         [HttpPost("logout")]
-        public async Task<IActionResult> Logout([FromQuery] string? sessionId = null, CancellationToken ct = default)
+        public async Task<IActionResult> Logout([FromQuery] string? sessionToken = null, CancellationToken ct = default)
         {
-            return await HandleAsync(_auth.LogoutAsync(User, sessionId, ct));
+            return await HandleAsync(_auth.LogoutAsync(sessionToken, ct));
         }
 
         [HttpPost("validate-refresh")]

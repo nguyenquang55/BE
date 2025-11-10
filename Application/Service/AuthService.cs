@@ -194,9 +194,25 @@ namespace Application.Service
             return Task.FromResult(Result<LoginResponse>.FailureResult("Chức năng làm mới token chưa được hỗ trợ", "NOT_IMPLEMENTED", HttpStatusCode.NotImplemented));
         }
 
-        public async Task<Result<string>> LogoutAsync(ClaimsPrincipal? principal = null, string? sessionToken = null, CancellationToken ct = default)
+        public async Task<Result<string>> LogoutAsync(string? sessionToken = null, CancellationToken ct = default)
         {
-            return Result<string>.SuccessResult("Đã đăng xuất", "Success", HttpStatusCode.OK);
+            try
+            {
+                var session = await _sessionRepository.GetSessionByToken(sessionToken!, ct: ct);
+                if (session == null)
+                {
+                    return Result<string>.FailureResult("Không tìm thấy session", null, HttpStatusCode.BadRequest);
+                }
+                else
+                {
+                    await _sessionRepository.DisableSessionAsync(session.UserId, "User Logged Out", ct);
+                    return Result<string>.SuccessResult("Đã đăng xuất", "Success", HttpStatusCode.OK);
+                }
+            }
+            catch (Exception ex)
+            {
+                return Result<string>.FailureResult("Đăng xuất thất bại", ex.Message, HttpStatusCode.InternalServerError);
+            }
         }
 
         public Task<Result<bool>> ValidateRefreshTokenAsync(string refreshToken, string? sessionId = null, CancellationToken ct = default)

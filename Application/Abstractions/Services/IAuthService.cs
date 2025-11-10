@@ -15,7 +15,7 @@ namespace Application.Abstractions.Services
     {
         Task<Result<bool>> ValidateRefreshTokenAsync(string refreshToken, string? sessionId = null, CancellationToken ct = default);
         Task<Result<LoginResponse>> LoginAsync(LoginRequest request, CancellationToken ct = default);
-        Task<Result<string>> LogoutAsync(ClaimsPrincipal? principal = null, string? sessionToken = null, CancellationToken ct = default);
+        Task<Result<string>> LogoutAsync(string? sessionToken = null, CancellationToken ct = default);
         Task<Result<LoginResponse>> RefreshTokenAsync(string refreshToken,string sessionToken,CancellationToken ct = default);
         Task<Result<RegisterRespone>> RegisterAsync(RegisterRequest request, CancellationToken ct = default);
     }
