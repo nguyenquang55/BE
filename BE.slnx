@@ -4,4 +4,5 @@
   <Project Path="Domain/Domain.csproj" Id="6546cb19-1ac2-4823-910c-66977eb83aba" />
   <Project Path="Infrastructure/Infrastructure.csproj" Id="f80f7ca4-e1ad-4c0c-812f-1cb23b989ac5" />
   <Project Path="Shared/Shared.csproj" Id="ed89d5cd-63f7-4af5-aa6b-0e877840cda4" />
+  <Project Path="Worker/Worker.csproj" Id="4db4ed1d-513f-4b21-9bf6-d28339956124" />
 </Solution>

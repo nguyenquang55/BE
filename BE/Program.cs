@@ -42,7 +42,6 @@ builder.Services.AddSingleton<INotificationHub, Infrastructure.SignalR.Notificat
 // Message processing service
 builder.Services.AddSingleton<IMessageProcessingService, Application.Service.MessageProcessingService>();
 
-
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
