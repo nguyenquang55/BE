@@ -21,59 +21,40 @@ namespace BE.Controllers
             _sessions = sessions;
         }
 
-        private async Task<Guid?> ResolveUserIdAsync(string? sessionToken, CancellationToken ct)
-        {
-            if (string.IsNullOrWhiteSpace(sessionToken)) return null;
-            var res = await _sessions.GetSessionByTokenAsync(sessionToken, ct);
-            return res.Success ? res.Data!.UserId : (Guid?)null;
-        }
-
         [HttpGet]
         public async Task<IActionResult> List([FromQuery] string? sessionToken, [FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
         {
-            var uid = await ResolveUserIdAsync(sessionToken ?? Request.Query["sessionToken"], ct);
-            if (uid == null) return Unauthorized();
-            return await HandleAsync(_contacts.ListAsync(uid.Value, search, page, pageSize, ct));
+            return await HandleAsync(_contacts.ListAsync(sessionToken, search, page, pageSize, ct));
         }
 
         [HttpGet("{id}")]
         public async Task<IActionResult> Get([FromRoute] Guid id, [FromQuery] string? sessionToken, CancellationToken ct = default)
         {
-            var uid = await ResolveUserIdAsync(sessionToken ?? Request.Query["sessionToken"], ct);
-            if (uid == null) return Unauthorized();
-            return await HandleAsync(_contacts.GetAsync(uid.Value, id, ct));
+            return await HandleAsync(_contacts.GetAsync(sessionToken, id, ct));
         }
 
         //[HttpPost]
         //public async Task<IActionResult> Create([FromBody] CreateContactRequest request, [FromQuery] string? sessionToken, CancellationToken ct = default)
         //{
-        //    var uid = await ResolveUserIdAsync(sessionToken ?? Request.Query["sessionToken"], ct);
-        //    if (uid == null) return Unauthorized();
-        //    return await HandleAsync(_contacts.CreateAsync(uid.Value, request, ct));
+        //    return await HandleAsync(_contacts.CreateAsync(sessionToken, request, ct));
         //}
 
         [HttpPost]
         public async Task<IActionResult> BulkCreate([FromBody] CreateContactRequest[] requests, [FromQuery] string? sessionToken, CancellationToken ct = default)
         {
-            var uid = await ResolveUserIdAsync(sessionToken ?? Request.Query["sessionToken"], ct);
-            if (uid == null) return Unauthorized();
-            return await HandleAsync(_contacts.CreateManyAsync(uid.Value, requests, ct));
+            return await HandleAsync(_contacts.CreateManyAsync(sessionToken, requests, ct));
         }
 
         [HttpPut("{id}")]
         public async Task<IActionResult> Update([FromRoute] Guid id, [FromBody] UpdateContactRequest request, [FromQuery] string? sessionToken, CancellationToken ct = default)
         {
-            var uid = await ResolveUserIdAsync(sessionToken ?? Request.Query["sessionToken"], ct);
-            if (uid == null) return Unauthorized();
-            return await HandleAsync(_contacts.UpdateAsync(uid.Value, id, request, ct));
+            return await HandleAsync(_contacts.UpdateAsync(sessionToken, id, request, ct));
         }
 
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete([FromRoute] Guid id, [FromQuery] string? sessionToken, CancellationToken ct = default)
         {
-            var uid = await ResolveUserIdAsync(sessionToken ?? Request.Query["sessionToken"], ct);
-            if (uid == null) return Unauthorized();
-            return await HandleAsync(_contacts.DeleteAsync(uid.Value, id, ct));
+            return await HandleAsync(_contacts.DeleteAsync(sessionToken, id, ct));
         }
     }
 }

@@ -42,10 +42,7 @@ namespace BE.Controllers
         [HttpPost("refresh")]
         public async Task<IActionResult> Refresh([FromBody] RefreshAuthTokenRequest request, CancellationToken ct)
         {
-            if (string.IsNullOrWhiteSpace(request.SessionToken))
-                return await HandleAsync(Task.FromResult(Result<LoginResponse>.FailureResult("Session token is required", "VALIDATION_ERROR", System.Net.HttpStatusCode.BadRequest)));
-
-            return await HandleAsync(_auth.RefreshTokenAsync(request.RefreshToken, request.SessionToken, ct));
+            return await HandleAsync(_auth.RefreshTokenAsync(request.RefreshToken, request.SessionToken ?? string.Empty, ct));
         }
 
         [HttpPost("logout")]

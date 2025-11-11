@@ -3,8 +3,9 @@ using Application.Abstractions.Repositories;
 using Application.Abstractions.Services;
 using Application.Contracts.Contact;
 using Domain.Entities.Identity;
-using Shared.Common;
 using FluentValidation;
+using Microsoft.AspNetCore.Http;
+using Shared.Common;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -20,28 +21,39 @@ namespace Application.Service
         private readonly IUnitOfWork _uow;
         private readonly IValidator<CreateContactRequest> _createValidator;
         private readonly IValidator<UpdateContactRequest> _updateValidator;
+        private readonly ISessionService _sessions;
 
-        public ContactService(IContactRepository contacts, IUnitOfWork uow, IValidator<CreateContactRequest> createValidator, IValidator<UpdateContactRequest> updateValidator)
+        public ContactService(IContactRepository contacts, IUnitOfWork uow, IValidator<CreateContactRequest> createValidator, IValidator<UpdateContactRequest> updateValidator, ISessionService sessions)
         {
             _contacts = contacts;
             _uow = uow;
             _createValidator = createValidator;
             _updateValidator = updateValidator;
+            _sessions = sessions;
         }
 
-        public async Task<Result<ContactDTO>> CreateAsync(Guid userId, CreateContactRequest request, CancellationToken ct = default)
+        private async Task<Guid?> ResolveUserIdAsync(string? sessionToken, CancellationToken ct)
         {
+            if (string.IsNullOrWhiteSpace(sessionToken)) return null;
+            var res = await _sessions.GetSessionByTokenAsync(sessionToken, ct);
+            return res.Success ? res.Data!.UserId : (Guid?)null;
+        }
+
+        public async Task<Result<ContactDTO>> CreateAsync(string? sessionToken, CreateContactRequest request, CancellationToken ct = default)
+        {
+            var userId = await ResolveUserIdAsync(sessionToken, ct);
+            if (userId == null) return Result<ContactDTO>.FailureResult("Unauthorized", "UNAUTHORIZED", HttpStatusCode.Unauthorized);
             var v = await _createValidator.ValidateAsync(request, ct);
             if (!v.IsValid)
                 return Result<ContactDTO>.FailureResult(v.Errors.First().ErrorMessage, "VALIDATION_ERROR", HttpStatusCode.BadRequest);
 
-            var dup = await _contacts.FindByEmailAsync(userId, request.Email, ct);
+            var dup = await _contacts.FindByEmailAsync(userId.Value, request.Email, ct);
             if (dup != null)
                 return Result<ContactDTO>.FailureResult("Contact email already exists", "CONFLICT", HttpStatusCode.Conflict);
 
             var entity = new Contact
             {
-                UserId = userId,
+                UserId = userId.Value,
                 Name = request.Name.Trim(),
                 Email = request.Email.Trim(),
                 Source = string.IsNullOrWhiteSpace(request.Source) ? "manual" : request.Source!.Trim()
@@ -53,8 +65,10 @@ namespace Application.Service
             return Result<ContactDTO>.SuccessResult(ToDto(entity), "Created", HttpStatusCode.Created);
         }
 
-        public async Task<Result<BulkCreateContactsResponse>> CreateManyAsync(Guid userId, IEnumerable<CreateContactRequest> requests, CancellationToken ct = default)
+        public async Task<Result<BulkCreateContactsResponse>> CreateManyAsync(string? sessionToken, IEnumerable<CreateContactRequest> requests, CancellationToken ct = default)
         {
+            var userId = await ResolveUserIdAsync(sessionToken, ct);
+            if (userId == null) return Result<BulkCreateContactsResponse>.FailureResult("Unauthorized", "UNAUTHORIZED", HttpStatusCode.Unauthorized);
             if (requests == null)
                 return Result<BulkCreateContactsResponse>.FailureResult("Request body is null", "NULL_BODY", HttpStatusCode.BadRequest);
 
@@ -125,9 +139,9 @@ namespace Application.Service
             }
 
             // Check existing emails and names in DB
-            var existing = await _contacts.FindByEmailsAsync(userId, candidates.Select(c => c.NormEmail), ct);
+            var existing = await _contacts.FindByEmailsAsync((Guid)userId, candidates.Select(c => c.NormEmail), ct);
             var existingSet = existing.Select(e => e.Email.ToLowerInvariant()).ToHashSet();
-            var existingNames = await _contacts.FindByNamesAsync(userId, candidates.Select(c => c.Req.Name), ct);
+            var existingNames = await _contacts.FindByNamesAsync((Guid)userId, candidates.Select(c => c.Req.Name), ct);
             var existingNameSet = existingNames.Select(e => e.Name.ToLowerInvariant()).ToHashSet();
 
             var toCreate = new List<Contact>();
@@ -159,7 +173,7 @@ namespace Application.Service
 
                 toCreate.Add(new Contact
                 {
-                    UserId = userId,
+                    UserId = (Guid)userId,
                     Name = c.Req.Name.Trim(),
                     Email = c.Req.Email.Trim(),
                     Source = string.IsNullOrWhiteSpace(c.Req.Source) ? "manual" : c.Req.Source!.Trim()
@@ -182,9 +196,11 @@ namespace Application.Service
             return Result<BulkCreateContactsResponse>.SuccessResult(resp, message, status);
         }
 
-        public async Task<Result<bool>> DeleteAsync(Guid userId, Guid contactId, CancellationToken ct = default)
+        public async Task<Result<bool>> DeleteAsync(string? sessionToken, Guid contactId, CancellationToken ct = default)
         {
-            var existing = await _contacts.GetByIdAsync(userId, contactId, ct);
+            var uid = await ResolveUserIdAsync(sessionToken, ct);
+            if (uid == null) return Result<bool>.FailureResult("Unauthorized", "UNAUTHORIZED", HttpStatusCode.Unauthorized);
+            var existing = await _contacts.GetByIdAsync((Guid)uid, contactId, ct);
             if (existing == null)
                 return Result<bool>.FailureResult("Not found", "NOT_FOUND", HttpStatusCode.NotFound);
 
@@ -193,33 +209,39 @@ namespace Application.Service
             return Result<bool>.SuccessResult(true, "Deleted", HttpStatusCode.OK);
         }
 
-        public async Task<Result<ContactDTO>> GetAsync(Guid userId, Guid contactId, CancellationToken ct = default)
+        public async Task<Result<ContactDTO>> GetAsync(string? sessionToken, Guid contactId, CancellationToken ct = default)
         {
-            var entity = await _contacts.GetByIdAsync(userId, contactId, ct);
+            var uid = await ResolveUserIdAsync(sessionToken, ct);
+            if (uid == null) return Result<ContactDTO>.FailureResult("Unauthorized", "UNAUTHORIZED", HttpStatusCode.Unauthorized);
+            var entity = await _contacts.GetByIdAsync(uid.Value, contactId, ct);
             if (entity == null)
                 return Result<ContactDTO>.FailureResult("Not found", "NOT_FOUND", HttpStatusCode.NotFound);
             return Result<ContactDTO>.SuccessResult(ToDto(entity), "OK", HttpStatusCode.OK);
         }
 
-        public async Task<Result<IEnumerable<ContactDTO>>> ListAsync(Guid userId, string? search = null, int page = 1, int pageSize = 20, CancellationToken ct = default)
+        public async Task<Result<IEnumerable<ContactDTO>>> ListAsync(string? sessionToken, string? search = null, int page = 1, int pageSize = 20, CancellationToken ct = default)
         {
-            var items = await _contacts.ListAsync(userId, search, page, pageSize, ct);
+            var uid = await ResolveUserIdAsync(sessionToken, ct);
+            if (uid == null) return Result<IEnumerable<ContactDTO>>.FailureResult("Unauthorized", "UNAUTHORIZED", HttpStatusCode.Unauthorized);
+            var items = await _contacts.ListAsync(uid.Value, search, page, pageSize, ct);
             return Result<IEnumerable<ContactDTO>>.SuccessResult(items.Select(ToDto), "OK", HttpStatusCode.OK);
         }
 
-        public async Task<Result<ContactDTO>> UpdateAsync(Guid userId, Guid contactId, UpdateContactRequest request, CancellationToken ct = default)
+        public async Task<Result<ContactDTO>> UpdateAsync(string? sessionToken, Guid contactId, UpdateContactRequest request, CancellationToken ct = default)
         {
+            var userId = await ResolveUserIdAsync(sessionToken, ct);
+            if (userId == null) return Result<ContactDTO>.FailureResult("Unauthorized", "UNAUTHORIZED", HttpStatusCode.Unauthorized);
             var v = await _updateValidator.ValidateAsync(request, ct);
             if (!v.IsValid)
                 return Result<ContactDTO>.FailureResult(v.Errors.First().ErrorMessage, "VALIDATION_ERROR", HttpStatusCode.BadRequest);
 
-            var entity = await _contacts.GetByIdAsync(userId, contactId, ct);
+            var entity = await _contacts.GetByIdAsync((Guid)userId, contactId, ct);
             if (entity == null)
                 return Result<ContactDTO>.FailureResult("Not found", "NOT_FOUND", HttpStatusCode.NotFound);
 
             if (!string.Equals(entity.Email, request.Email?.Trim(), StringComparison.OrdinalIgnoreCase))
             {
-                var dup = await _contacts.FindByEmailAsync(userId, request.Email!, ct);
+                var dup = await _contacts.FindByEmailAsync((Guid)userId, request.Email!, ct);
                 if (dup != null)
                     return Result<ContactDTO>.FailureResult("Contact email already exists", "CONFLICT", HttpStatusCode.Conflict);
             }

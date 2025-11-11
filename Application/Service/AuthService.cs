@@ -9,6 +9,7 @@ using Domain.Entities.Identity;
 using FluentValidation;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
+using Org.BouncyCastle.Asn1.Ocsp;
 using Shared.Common;
 using StackExchange.Redis;
 using System.Net;
@@ -188,6 +189,9 @@ namespace Application.Service
 
         public Task<Result<LoginResponse>> RefreshTokenAsync(string refreshToken,string sessionToken,CancellationToken ct = default)
         {
+            if (string.IsNullOrWhiteSpace(sessionToken))
+                return Task.FromResult(Result<LoginResponse>.FailureResult("Session token is required", "VALIDATION_ERROR", System.Net.HttpStatusCode.BadRequest));
+
             if (string.IsNullOrWhiteSpace(refreshToken))
                 return Task.FromResult(Result<LoginResponse>.FailureResult("Refresh token không hợp lệ", null, HttpStatusCode.BadRequest));
 
