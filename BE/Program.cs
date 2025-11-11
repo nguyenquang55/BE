@@ -6,7 +6,7 @@ using Infrastructure.SignalR;
 using Microsoft.Extensions.Configuration;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Application.Abstractions.Services;
+using Infrastructure.Messaging; 
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -41,6 +41,10 @@ builder.Services.AddSingleton<INotificationHub, Infrastructure.SignalR.Notificat
 
 // Message processing service
 builder.Services.AddSingleton<IMessageProcessingService, Application.Service.MessageProcessingService>();
+
+MassTransitConfig.AddMassTransitPublisher(builder.Services, builder.Configuration);
+// Nếu dùng Outbox: add hosted service
+builder.Services.AddHostedService<Infrastructure.Outbox.OutboxPublisherService>();
 
 builder.Services.AddCors(options =>
 {

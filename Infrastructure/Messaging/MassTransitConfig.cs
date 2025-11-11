@@ -12,26 +12,75 @@ namespace Infrastructure.Messaging
     /// </summary>
     public static class MassTransitConfig
     {
-    /// <summary>
-    /// Đăng ký MassTransit cho vai trò Publisher (WebApi).
-    /// Chỉ tạo bus để publish message (IPublishEndpoint), không định nghĩa queue vì Publisher chỉ gửi message.
-    /// Sử dụng cấu hình RabbitMQ từ appsettings (Host, Username, Password).
-    /// </summary>
-    public static void AddMassTransitPublisher(IServiceCollection services, IConfiguration cfg)
+        private static void ConfigureRabbitMqHost(IRabbitMqBusFactoryConfigurator rcfg, string host, string vhost, string username, string password)
+        {
+            // Support both styles:
+            // - Host without scheme: "localhost" (use virtual host separately)
+            // - Full URI: "rabbitmq://localhost/" or "rabbitmq://localhost/dev"
+            if (!string.IsNullOrWhiteSpace(host) && host.Contains("://", StringComparison.Ordinal))
+            {
+                // Treat as full URI
+                var uri = new Uri(host);
+                rcfg.Host(uri, h =>
+                {
+                    h.Username(username);
+                    h.Password(password);
+                });
+            }
+            else
+            {
+                // Treat as host name/address with explicit virtual host
+                if (string.IsNullOrWhiteSpace(vhost)) vhost = "/";
+
+                // Accept optional port in host (e.g., "localhost:5672")
+                string hostOnly = host;
+                ushort? port = null;
+                var parts = host.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                if (parts.Length == 2 && ushort.TryParse(parts[1], out var parsedPort))
+                {
+                    hostOnly = parts[0];
+                    port = parsedPort;
+                }
+
+                if (port.HasValue)
+                {
+                    // Build full URI when port is specified
+                    var uriBuilderVhost = vhost.StartsWith('/') ? vhost : "/" + vhost;
+                    var fullUri = new Uri($"rabbitmq://{hostOnly}:{port.Value}{uriBuilderVhost}");
+                    rcfg.Host(fullUri, h =>
+                    {
+                        h.Username(username);
+                        h.Password(password);
+                    });
+                }
+                else
+                {
+                    rcfg.Host(hostOnly, vhost, h =>
+                    {
+                        h.Username(username);
+                        h.Password(password);
+                    });
+                }
+            }
+        }
+
+        /// <summary>
+        /// Đăng ký MassTransit cho vai trò Publisher (WebApi).
+        /// Chỉ tạo bus để publish message (IPublishEndpoint), không định nghĩa queue vì Publisher chỉ gửi message.
+        /// Sử dụng cấu hình RabbitMQ từ appsettings (Host, Username, Password).
+        /// </summary>
+        public static void AddMassTransitPublisher(IServiceCollection services, IConfiguration cfg)
         {
             var mqHost = cfg.GetValue<string>("RabbitMq:Host", "rabbitmq");
             var mqUser = cfg.GetValue<string>("RabbitMq:Username", "guest");
             var mqPass = cfg.GetValue<string>("RabbitMq:Password", "guest");
+            var mqVHost = cfg.GetValue<string>("RabbitMq:VirtualHost", "/");
 
             services.AddMassTransit(x =>
             {
                 x.UsingRabbitMq((context, rcfg) =>
                 {
-                    rcfg.Host(mqHost, h =>
-                    {
-                        h.Username(mqUser);
-                        h.Password(mqPass);
-                    });
+                    ConfigureRabbitMqHost(rcfg, mqHost, mqVHost, mqUser, mqPass);
 
                     // Do not define queues here for publisher
                 });
@@ -50,6 +99,7 @@ namespace Infrastructure.Messaging
             var mqHost = cfg.GetValue<string>("RabbitMq:Host", "rabbitmq");
             var mqUser = cfg.GetValue<string>("RabbitMq:Username", "guest");
             var mqPass = cfg.GetValue<string>("RabbitMq:Password", "guest");
+            var mqVHost = cfg.GetValue<string>("RabbitMq:VirtualHost", "/");
             var prefetch = cfg.GetValue<ushort>("RabbitMq:PrefetchCount", 16);
             var retryCount = cfg.GetValue<int>("RabbitMq:Retry:RetryCount", 5);
             var retryInterval = cfg.GetValue<int>("RabbitMq:Retry:IntervalSeconds", 5);
@@ -59,11 +109,7 @@ namespace Infrastructure.Messaging
                 // Consumers need to be added by caller: x.AddConsumers(typeof(YourConsumerAssembly).Assembly)
                 x.UsingRabbitMq((context, rcfg) =>
                 {
-                    rcfg.Host(mqHost, h =>
-                    {
-                        h.Username(mqUser);
-                        h.Password(mqPass);
-                    });
+                    ConfigureRabbitMqHost(rcfg, mqHost, mqVHost, mqUser, mqPass);
 
                     var exchanges = cfg.GetSection("RabbitMq:Exchanges").GetChildren();
                     foreach (var ex in exchanges)
