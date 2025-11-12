@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <Folder Include="Contracts\IntegrationEvents\" />
+    <Folder Include="Contracts\Messaging\" />
   </ItemGroup>
 
 </Project>

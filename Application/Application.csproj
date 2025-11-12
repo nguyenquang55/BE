@@ -13,7 +13,6 @@
 
   <ItemGroup>
     <Folder Include="EventHandlers\" />
-    <Folder Include="Model\" />
   </ItemGroup>
 
   <ItemGroup>

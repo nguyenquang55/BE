@@ -6,7 +6,9 @@ using Infrastructure.SignalR;
 using Microsoft.Extensions.Configuration;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Infrastructure.Messaging; 
+using Shared.Contracts.Messaging;
+using MassTransit;
+using BE.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -39,11 +41,42 @@ builder.Services
 builder.Services.AddSingleton<INotificationHubContext, BE.SignalR.NotificationHubContext>();
 builder.Services.AddSingleton<INotificationHub, Infrastructure.SignalR.NotificationHubAdapter>();
 
-// Message processing service
+// Message processing and enqueue services
 builder.Services.AddSingleton<IMessageProcessingService, Application.Service.MessageProcessingService>();
+builder.Services.AddSingleton<IRoutingStore, Infrastructure.Cache.RedisRoutingStore>();
+builder.Services.AddScoped<IMessageEnqueueService, Infrastructure.Messaging.MessageEnqueueService>();
 
-MassTransitConfig.AddMassTransitPublisher(builder.Services, builder.Configuration);
-// Nếu dùng Outbox: add hosted service
+// MassTransit unified configuration: publish submitted, consume processed
+builder.Services.AddMassTransit(x =>
+{
+    // Consumer for processed messages -> send via SignalR
+    x.AddConsumer<UserMessageProcessedConsumer>();
+    x.UsingRabbitMq((context, cfgMq) =>
+    {
+        var mqHost = builder.Configuration.GetValue<string>("RabbitMq:Host", "localhost");
+        var mqUser = builder.Configuration.GetValue<string>("RabbitMq:Username", "guest");
+        var mqPass = builder.Configuration.GetValue<string>("RabbitMq:Password", "guest");
+        var mqVHost = builder.Configuration.GetValue<string>("RabbitMq:VirtualHost", "/");
+
+        // Simple host (no port) or full URI
+        if (mqHost.Contains("://"))
+        {
+            cfgMq.Host(new Uri(mqHost), h => { h.Username(mqUser); h.Password(mqPass); });
+        }
+        else
+        {
+            cfgMq.Host(mqHost, mqVHost, h => { h.Username(mqUser); h.Password(mqPass); });
+        }
+
+        // Receive processed event queue
+        cfgMq.ReceiveEndpoint("user.msg.processed.queue", e =>
+        {
+            e.ConfigureConsumer<UserMessageProcessedConsumer>(context);
+        });
+    });
+});
+
+// Outbox hosted service (publishes submitted events)
 builder.Services.AddHostedService<Infrastructure.Outbox.OutboxPublisherService>();
 
 builder.Services.AddCors(options =>

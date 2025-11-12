@@ -8,12 +8,12 @@ namespace BE.Hubs
 {
     public class NotificationHub : Hub
     {
-        private readonly IMessageProcessingService _messageProcessingService;
+        private readonly IMessageEnqueueService _enqueueService;
         private readonly INotificationHubContext _notificationHubContext;
 
-        public NotificationHub(IMessageProcessingService messageProcessingService, INotificationHubContext notificationHubContext)
+        public NotificationHub(IMessageEnqueueService enqueueService, INotificationHubContext notificationHubContext)
         {
-            _messageProcessingService = messageProcessingService;
+            _enqueueService = enqueueService;
             _notificationHubContext = notificationHubContext;
         }
         public override async Task OnConnectedAsync()
@@ -36,22 +36,25 @@ namespace BE.Hubs
 
         public async Task ProcessMessage(string message, string messageId)
         {
-            var processed = await _messageProcessingService.ProcessAsync(message);
+            var (mid, trace) = await _enqueueService.EnqueueAsync(
+                payload: message,
+                userId: Context.UserIdentifier,
+                connectionId: Context.ConnectionId,
+                messageId: string.IsNullOrWhiteSpace(messageId) ? null : messageId
+            );
 
-            var processedJson = JsonSerializer.Serialize(new
+            var ackJson = JsonSerializer.Serialize(new
             {
-                type = "processed",
-                payload = processed,
-                connectionId = Context.ConnectionId
+                type = "ack",
+                messageId = mid,
+                traceId = trace,
+                status = "in-progress"
             });
+
             if (!string.IsNullOrWhiteSpace(Context.UserIdentifier))
-            {
-                await _notificationHubContext.SendToUserAsync(Context.UserIdentifier!, processedJson);
-            }
+                await _notificationHubContext.SendToUserAsync(Context.UserIdentifier!, ackJson);
             else
-            {
-                await _notificationHubContext.SendToClientAsync(Context.ConnectionId, processedJson);
-            }
+                await _notificationHubContext.SendToClientAsync(Context.ConnectionId, ackJson);
         }
     }
 }
