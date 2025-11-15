@@ -16,5 +16,6 @@ namespace Application.Abstractions.Services
         Task<Result<string>> HandleCallbackAsync(string code);
         // Preferred overload with state
         Task<Result<string>> HandleCallbackAsync(string code, string state);
+        Task<Result<string>> Refresh(string sessionToken, CancellationToken ct = default);
     }
 }
