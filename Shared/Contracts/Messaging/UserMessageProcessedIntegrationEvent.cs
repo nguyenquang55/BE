@@ -9,7 +9,7 @@ namespace Shared.Contracts.Messaging
         string MessageId,
         string? UserId,
         string ConnectionId,
-        string ProcessingResult,
+        object ProcessingResult,
         string TraceId,
         DateTimeOffset ProcessedAt
     );

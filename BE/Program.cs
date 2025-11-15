@@ -46,6 +46,8 @@ builder.Services.AddSingleton<IMessageProcessingService, Application.Service.Mes
 builder.Services.AddSingleton<IRoutingStore, Infrastructure.Cache.RedisRoutingStore>();
 builder.Services.AddScoped<IMessageEnqueueService, Infrastructure.Messaging.MessageEnqueueService>();
 
+builder.Services.AddSingleton<ITokenizerService, Infrastructure.Model.BertTokenizerService>();
+
 // MassTransit unified configuration: publish submitted, consume processed
 builder.Services.AddMassTransit(x =>
 {
@@ -113,6 +115,7 @@ app.MapControllers();
 
 // Map SignalR hubs
 app.MapHub<BE.Hubs.NotificationHub>("/hubs/notifications");
-
+// Warm-up: force creation of tokenizer at startup (optional)
+_ = app.Services.GetService<ITokenizerService>();
 
 app.Run();

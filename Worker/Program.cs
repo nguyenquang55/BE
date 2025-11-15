@@ -1,10 +1,16 @@
 using Application.Abstractions.Services;
 using Application.Service;
+using Infrastructure.Model;
+using Worker.Model;
 using MassTransit;
 using Shared.Contracts.Messaging;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Tokenizer & Model inference singletons (init once)
+builder.Services.AddSingleton<ITokenizerService, BertTokenizerService>();
+builder.Services.AddSingleton<IModelInferenceService, OnnxModelInferenceService>();
+// Backward-compatible processing service could wrap inference (or keep if used elsewhere)
 builder.Services.AddSingleton<IMessageProcessingService, MessageProcessingService>();
 
 builder.Services.AddMassTransit(x =>
@@ -33,5 +39,9 @@ builder.Services.AddMassTransit(x =>
 var app = builder.Build();
 
 app.MapGet("/health", () => "ok");
+
+// Warm-up heavy singletons
+_ = app.Services.GetService<ITokenizerService>();
+_ = app.Services.GetService<IModelInferenceService>();
 
 app.Run();

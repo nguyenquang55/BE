@@ -125,7 +125,6 @@ namespace Application.Service
             var userWithProviders = await _userRepository.GetWithAuthProvidersAsync(user.Id, ct) ?? user;
             var userDetail = new UserDetailDTO
             {
-                UserId = user.Id,
                 Email = user.Email,
                 DisplayName = user.DisplayName,
                 Timezone = user.Timezone,
@@ -133,7 +132,6 @@ namespace Application.Service
                 AuthProviders = (userWithProviders.AuthProviders ?? new List<OAuthProvider>())
                     .Select(p => new OAuthProviderDTO
                     {
-                        Id = p.Id,
                         Provider = p.Provider,
                         ProviderUserId = p.ProviderUserId,
                         ProviderEmail = p.ProviderEmail,
@@ -144,43 +142,11 @@ namespace Application.Service
                     .ToList()
             };
 
-            var accessTokenExpirationMinutes = double.Parse(_configuration["Jwt:AccessTokenExpirationMinutes"]);
-            var refreshTokenExpirationDays = double.Parse(_configuration["Jwt:RefreshTokenExpirationDays"]);
-            //key
-            var refreshKey = $"JwtRefresh:user:{user.Id}";
-            var accessKey = $"JwtAccess:user:{user.Id}";
-
-            var existingRefresh = await _redis.GetAsync<string>(refreshKey);
-
-            string accessToken;
-            string refreshToken;
-
-            if (!string.IsNullOrEmpty(existingRefresh))
-            {
-                refreshToken = existingRefresh;
-
-                accessToken = await _jwtProvider.GenerateAccessToken(user);
-
-                await _redis.SetAsync(accessKey, accessToken, TimeSpan.FromMinutes(accessTokenExpirationMinutes));
-            }
-            else
-            {
-                var tokens = await _jwtProvider.GenerateToken(user); 
-                accessToken = tokens.AccessToken;
-                refreshToken = tokens.RefreshToken;
-
-                await _redis.SetAsync(accessKey, accessToken, TimeSpan.FromMinutes(accessTokenExpirationMinutes));
-                await _redis.SetAsync(refreshKey, refreshToken, TimeSpan.FromDays(refreshTokenExpirationDays));
-            }
 
             var res = new LoginResponse
             {
-                //AccessToken = accessToken,
                 sessionToken = sessionToken,
                 User = userDetail,
-                //RefreshToken = refreshToken,
-                //TokenExpiresAt = DateTime.Now.AddMinutes(accessTokenExpirationMinutes),
-                //RefreshTokenExpiresAt = DateTime.Now.AddDays(refreshTokenExpirationDays)
             };
             await _unitOfWork.SaveChangesAsync();
             return Result<LoginResponse>.SuccessResult(res, "Đăng nhập thành công", HttpStatusCode.OK);

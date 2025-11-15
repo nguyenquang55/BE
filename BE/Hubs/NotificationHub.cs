@@ -25,15 +25,6 @@ namespace BE.Hubs
             await base.OnDisconnectedAsync(exception);
         }
 
-        //public Task Echo(string message)
-        //{
-        //    var http = Context.GetHttpContext();
-        //    Console.ForegroundColor = ConsoleColor.Green;
-        //    Console.WriteLine($"[WS MESSAGE] ConnId={Context.ConnectionId} Message={message}");
-        //    Console.ResetColor();
-        //    return Clients.Caller.SendAsync("echo", message);
-        //}
-
         public async Task ProcessMessage(string message, string messageId)
         {
             var (mid, trace) = await _enqueueService.EnqueueAsync(

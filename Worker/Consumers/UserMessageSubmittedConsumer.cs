@@ -10,13 +10,13 @@ namespace Worker.Consumers
 {
     public class UserMessageSubmittedConsumer : TConsumer<UserMessageSubmittedIntegrationEvent>
     {
-        private readonly IMessageProcessingService _processor;
+        private readonly IModelInferenceService _inference;
         private readonly IPublishEndpoint _publisher;
         private readonly ILogger<UserMessageSubmittedConsumer> _logger;
 
-        public UserMessageSubmittedConsumer(IMessageProcessingService processor, IPublishEndpoint publisher, ILogger<UserMessageSubmittedConsumer> logger)
+        public UserMessageSubmittedConsumer(IModelInferenceService inference, IPublishEndpoint publisher, ILogger<UserMessageSubmittedConsumer> logger)
         {
-            _processor = processor;
+            _inference = inference;
             _publisher = publisher;
             _logger = logger;
         }
@@ -24,7 +24,7 @@ namespace Worker.Consumers
         public override async Task Consume(ConsumeContext<UserMessageSubmittedIntegrationEvent> context)
         {
             var evt = context.Message;
-            var result = await _processor.ProcessAsync(evt.Payload);
+            var result = await _inference.InferAsync(evt.Payload);
             var processedEvt = new UserMessageProcessedIntegrationEvent(
                 MessageId: evt.MessageId,
                 UserId: evt.UserId,

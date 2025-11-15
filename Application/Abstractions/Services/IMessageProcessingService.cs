@@ -8,11 +8,6 @@ namespace Application.Abstractions.Services
     /// </summary>
     public interface IMessageProcessingService
     {
-        /// <summary>
-        /// Thực hiện xử lý business cho nội dung thô.
-        /// </summary>
-        /// <param name="raw">Nội dung client gửi.</param>
-        /// <returns>Kết quả đã xử lý.</returns>
         Task<string> ProcessAsync(string raw);
     }
 }

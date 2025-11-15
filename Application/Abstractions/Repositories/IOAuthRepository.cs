@@ -1,4 +1,6 @@
-﻿using System;
+﻿using Application.Abstractions.Repositories.Common;
+using Domain.Entities.Identity;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -6,8 +8,8 @@ using System.Threading.Tasks;
 
 namespace Application.Abstractions.Repositories
 {
-    public interface IOAuthRepository
+    public interface IOAuthRepository : IRepository<OAuthToken>
     {
-        Task<bool> IsValidClientAsync(string clientId, string clientSecret);
+        Task<string> GetOAuthTokenAsync(string useId, CancellationToken ct = default);
     }
 }
