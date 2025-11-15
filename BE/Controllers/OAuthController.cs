@@ -22,7 +22,7 @@ namespace BE.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> OAuth([FromQuery]OAuthRequest oAuthRequest , CancellationToken ct)
+        public async Task<IActionResult> OAuth([FromQuery] OAuthRequest oAuthRequest, CancellationToken ct)
         {
             var urlResult = await _OAuthProviderService.CreateAuthorizationUrlAsync(oAuthRequest.SessionToken);
             if (!urlResult.Success)
@@ -38,6 +38,12 @@ namespace BE.Controllers
         public async Task<IActionResult> OAuthCallback([FromQuery] string code, [FromQuery] string state, CancellationToken ct)
         {
             return await HandleAsync(_OAuthProviderService.HandleCallbackAsync(code, state));
+        }
+
+        [HttpGet("Refresh")]
+        public async Task<IActionResult> Refresh([FromQuery] string SessionToken, CancellationToken ct)
+        {
+            return await HandleAsync(_OAuthProviderService.Refresh(SessionToken, ct));
         }
     }
 }

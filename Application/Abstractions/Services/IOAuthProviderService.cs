@@ -13,5 +13,6 @@ namespace Application.Abstractions.Services
         Task<Result<string>> CreateAuthorizationUrlAsync(string sessionToken);
         Task<Result<string>> HandleCallbackAsync(string code);
         Task<Result<string>> HandleCallbackAsync(string code, string state);
+        Task<Result<string>> Refresh(string sessionToken, CancellationToken ct = default);
     }
 }
