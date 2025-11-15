@@ -271,6 +271,8 @@ namespace Application.Service
                     Scopes = token.scope,
                     RefreshToken = token.refresh_token,
                 });
+                await _redisCacheService.SetAsync($"OAuthAccessToken:{userId}", token.access_token, TimeSpan.FromSeconds(token.expires_in));
+                await _redisCacheService.SetAsync($"OAuthRefreshToken:{userId}", token.refresh_token ?? string.Empty, TimeSpan.FromDays(30));
                 await _unitOfWork.SaveChangesAsync();
             }
             catch (Exception ex)

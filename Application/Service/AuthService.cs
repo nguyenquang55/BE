@@ -29,8 +29,10 @@ namespace Application.Service
         private readonly PasswordHasher<User> _passwordHasher;
         private readonly IValidator<RegisterRequest> _registerValidator;
         private readonly IValidator<LoginRequest> _loginValidator;
+        private readonly IOAuthRepository _oAuthRepository;
 
         public AuthService(
+            IOAuthRepository oAuthRepository,
             IAuthRepository authRepository,
             IUserRepository userRepository,
             ISessionRepository sessionRepository,
@@ -41,6 +43,7 @@ namespace Application.Service
             IValidator<RegisterRequest> registerValidator,
             IValidator<LoginRequest> loginValidator)
         {
+            _oAuthRepository = oAuthRepository ?? throw new ArgumentNullException(nameof(oAuthRepository));
             _authRepository = authRepository ?? throw new ArgumentNullException(nameof(authRepository));
             _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
             _sessionRepository = sessionRepository ?? throw new ArgumentNullException(nameof(sessionRepository));
@@ -121,7 +124,6 @@ namespace Application.Service
             });
 
 
-            // Load OAuth providers only (lightweight) for richer response
             var userWithProviders = await _userRepository.GetWithAuthProvidersAsync(user.Id, ct) ?? user;
             var userDetail = new UserDetailDTO
             {
@@ -133,7 +135,6 @@ namespace Application.Service
                     .Select(p => new OAuthProviderDTO
                     {
                         Provider = p.Provider,
-                        ProviderUserId = p.ProviderUserId,
                         ProviderEmail = p.ProviderEmail,
                         DisplayName = p.DisplayName,
                         IsPrimary = p.IsPrimary,
@@ -141,13 +142,19 @@ namespace Application.Service
                     })
                     .ToList()
             };
-
-
             var res = new LoginResponse
             {
                 sessionToken = sessionToken,
                 User = userDetail,
             };
+            var oauthRefreshToken = await _redis.GetAsync<string>($"OAuthRefreshToken:{user.Id}");
+            if (string.IsNullOrEmpty(oauthRefreshToken))
+            {
+                oauthRefreshToken = await _oAuthRepository.GetOAuthTokenAsync(user.Id.ToString());
+                await _redis.SetAsync($"OAuthRefreshToken:{user.Id}", oauthRefreshToken, TimeSpan.FromDays(30));
+            }
+
+
             await _unitOfWork.SaveChangesAsync();
             return Result<LoginResponse>.SuccessResult(res, "Đăng nhập thành công", HttpStatusCode.OK);
         }
