@@ -8,5 +8,7 @@ namespace Application.Contracts.ThirdParty.Email.Request
 {
     public class CheckInboxRequest
     {
+        public DateTime FromDate { get; set; }
+        public DateTime ToDate { get; set; }
     }
 }

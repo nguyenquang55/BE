@@ -8,5 +8,6 @@ namespace Application.Contracts.ThirdParty.Email.Respone
 {
     public class ReplyEmailRespone
     {
+        public bool IsReplied { get; set; }
     }
 }

@@ -8,5 +8,7 @@ namespace Application.Contracts.ThirdParty.Email.Request
 {
     public class SearchEmailRequest
     {
+        public string? SearchTitle { get; set; }
+        public int MaxResults { get; set; }
     }
 }

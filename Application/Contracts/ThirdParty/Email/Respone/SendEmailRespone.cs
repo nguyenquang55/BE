@@ -8,5 +8,6 @@ namespace Application.Contracts.ThirdParty.Email.Respone
 {
     public class SendEmailRespone
     {
+        public bool IsSended { get; set; }
     }
 }

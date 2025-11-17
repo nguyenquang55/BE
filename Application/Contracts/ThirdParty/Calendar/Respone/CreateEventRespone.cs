@@ -8,5 +8,6 @@ namespace Application.Contracts.ThirdParty.Calendar.Respone
 {
     public class CreateEventRespone
     {
+        public bool IsCreated { get; set; }
     }
 }

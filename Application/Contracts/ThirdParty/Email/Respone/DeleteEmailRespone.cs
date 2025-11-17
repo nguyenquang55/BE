@@ -8,5 +8,6 @@ namespace Application.Contracts.ThirdParty.Email.Respone
 {
     public class DeleteEmailRespone
     {
+        public bool IsDeleted { get; set; }
     }
 }

@@ -8,5 +8,9 @@ namespace Application.Contracts.ThirdParty.Calendar.Request
 {
     public class SearchEventRequest
     {
+        string? Id { get; set; }
+        string? Title { get; set; }
+        DateTime StartDate { get; set; }
+        DateTime EndDate { get; set; }
     }
 }

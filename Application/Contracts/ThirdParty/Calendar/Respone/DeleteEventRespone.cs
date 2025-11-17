@@ -8,5 +8,6 @@ namespace Application.Contracts.ThirdParty.Calendar.Respone
 {
     public class DeleteEventRespone
     {
+        public bool IsDeleted { get; set; }
     }
 }

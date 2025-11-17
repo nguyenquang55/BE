@@ -8,5 +8,6 @@ namespace Application.Contracts.ThirdParty.Email.Respone
 {
     public class ForwardEmailRespone
     {
+        public bool IsFowarded { get; set; }
     }
 }

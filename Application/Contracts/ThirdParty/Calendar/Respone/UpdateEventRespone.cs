@@ -8,5 +8,6 @@ namespace Application.Contracts.ThirdParty.Calendar.Respone
 {
     public class UpdateEventRespone
     {
+        public bool IsUpdated { get; set; }
     }
 }

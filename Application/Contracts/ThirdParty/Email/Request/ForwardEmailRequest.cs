@@ -8,5 +8,10 @@ namespace Application.Contracts.ThirdParty.Email.Request
 {
     public class ForwardEmailRequest
     {
+        public string? EmailId { get; set; }
+        public string? Title { get; set; }
+        public string? To { get; set; }
+        public string? Subject { get; set; }
+        public string? Body { get; set; }
     }
 }
