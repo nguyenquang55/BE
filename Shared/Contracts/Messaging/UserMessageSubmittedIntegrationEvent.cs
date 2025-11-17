@@ -7,7 +7,7 @@ namespace Shared.Contracts.Messaging
     /// </summary>
     public record UserMessageSubmittedIntegrationEvent(
         string MessageId,
-        string? UserId,
+        string? userId,
         string ConnectionId,
         string Payload,
         string TraceId,

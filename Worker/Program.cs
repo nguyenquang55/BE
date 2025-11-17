@@ -1,17 +1,27 @@
+using Application.Abstractions.Common;
+using Application.Abstractions.Infrastructure;
 using Application.Abstractions.Services;
 using Application.Service;
+using Ecom.Infrastructure.Persistence;
+using Infrastructure.Cache;
 using Infrastructure.Model;
-using Worker.Model;
+using Infrastructure.Persistence.DatabaseContext;
 using MassTransit;
 using Shared.Contracts.Messaging;
+using StackExchange.Redis;
+using Worker.Model;
 
 var builder = WebApplication.CreateBuilder(args);
+
+
 
 // Tokenizer & Model inference singletons (init once)
 builder.Services.AddSingleton<ITokenizerService, BertTokenizerService>();
 builder.Services.AddSingleton<IModelInferenceService, OnnxModelInferenceService>();
 // Backward-compatible processing service could wrap inference (or keep if used elsewhere)
 builder.Services.AddSingleton<IMessageProcessingService, MessageProcessingService>();
+builder.Services.AddSingleton<IConnectionMultiplexer>(sp => ConnectionMultiplexer.Connect("localhost:6379"));
+builder.Services.AddSingleton<IRedisCacheService, RedisCacheService>();
 
 builder.Services.AddMassTransit(x =>
 {

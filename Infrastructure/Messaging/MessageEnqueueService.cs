@@ -21,16 +21,16 @@ namespace Infrastructure.Messaging
             _logger = logger;
         }
 
-        public async Task<(string messageId, string traceId)> EnqueueAsync(string payload, string? userId, string connectionId, string? messageId = null, string? traceId = null, CancellationToken ct = default)
+        public async Task<(string messageId, string traceId)> EnqueueAsync(string payload, string? UserId, string connectionId, string? messageId = null, string? traceId = null, CancellationToken ct = default)
         {
             var mid = messageId ?? Guid.NewGuid().ToString("N");
             var tid = traceId ?? Guid.NewGuid().ToString("N");
 
-            await _routingStore.SaveAsync(mid, new MessageRoute(userId, connectionId), TimeSpan.FromMinutes(10), ct);
+            await _routingStore.SaveAsync(mid, new MessageRoute(UserId, connectionId), TimeSpan.FromMinutes(10), ct);
 
             var evt = new UserMessageSubmittedIntegrationEvent(
                 MessageId: mid,
-                UserId: userId,
+                userId: UserId,
                 ConnectionId: connectionId,
                 Payload: payload,
                 TraceId: tid,

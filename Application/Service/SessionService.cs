@@ -33,6 +33,7 @@ namespace Application.Service
             ILogger<SessionService> logger
         )
         {
+            _configuration = configuration;
             _uow = uow;
             _sessionRepository = sessionRepository;
             _cache = cache;

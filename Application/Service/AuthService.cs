@@ -122,7 +122,8 @@ namespace Application.Service
                 ExpiresAt = DateTime.Now.AddMinutes(double.Parse(_configuration["Session:ExpireTimeMinutes"] ?? throw new InvalidOperationException("Invalid format"))),
                 SessionToken = sessionToken
             });
-
+             
+            await _redis.SetAsync($"UserID:{sessionToken}", user.Id, TimeSpan.FromMinutes(double.Parse(_configuration["Session:ExpireTimeMinutes"] ?? throw new InvalidOperationException("Invalid format"))));
 
             var userWithProviders = await _userRepository.GetWithAuthProvidersAsync(user.Id, ct) ?? user;
             var userDetail = new UserDetailDTO
@@ -182,6 +183,7 @@ namespace Application.Service
                 }
                 else
                 {
+                    await _redis.RemoveAsync($"UserID:{sessionToken}");
                     await _sessionRepository.DisableSessionAsync(session.UserId, "User Logged Out", ct);
                     return Result<string>.SuccessResult("Đã đăng xuất", "Success", HttpStatusCode.OK);
                 }

@@ -25,11 +25,11 @@ namespace BE.Hubs
             await base.OnDisconnectedAsync(exception);
         }
 
-        public async Task ProcessMessage(string message, string messageId)
+        public async Task ProcessMessage(string message, string messageId,Guid userId)
         {
             var (mid, trace) = await _enqueueService.EnqueueAsync(
                 payload: message,
-                userId: Context.UserIdentifier,
+                userId : userId.ToString(),
                 connectionId: Context.ConnectionId,
                 messageId: string.IsNullOrWhiteSpace(messageId) ? null : messageId
             );

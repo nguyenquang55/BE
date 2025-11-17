@@ -12,6 +12,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Folder Include="Contracts\ThirdParty\Gemini\Request\" />
+    <Folder Include="Contracts\ThirdParty\Gemini\Respone\" />
     <Folder Include="EventHandlers\" />
   </ItemGroup>
 
