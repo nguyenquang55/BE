@@ -19,12 +19,19 @@ namespace Infrastructure.Persistence.Repositories
 
         public async Task<string> GetOAuthTokenAsync(string useId, CancellationToken ct = default)
         {
-            var token = await _context.OAuthTokens
-                .Where(t => t.UserId.ToString() == useId)
-                .OrderByDescending(t => t.CreatedAt)
-                .Select(t => t.RefreshToken)
-                .FirstOrDefaultAsync(ct);
-            return token ?? string.Empty;
+            try
+            {
+                string? token = await _context.OAuthTokens
+                                .Where(t => t.UserId.ToString() == useId)
+                                .OrderByDescending(t => t.CreatedAt)
+                                .Select(t => t.RefreshToken)
+                                .FirstOrDefaultAsync(ct);
+                return token ?? string.Empty;
+            }
+            catch (Exception)
+            {
+                return string.Empty;
+            }
         }
     }
 }

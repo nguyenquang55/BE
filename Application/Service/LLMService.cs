@@ -1,9 +1,14 @@
 ﻿using Application.Abstractions.Services;
+using Application.Contracts.ThirdParty.Gemini.Respone;
 using Application.Model;
+using Microsoft.Extensions.Configuration;
+using Org.BouncyCastle.Pkcs;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace Application.Service

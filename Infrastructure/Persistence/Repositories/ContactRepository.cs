@@ -78,5 +78,14 @@ namespace Infrastructure.Persistence.Repositories
                 .Take(pageSize)
                 .ToListAsync(ct);
         }
+
+        public async Task<IReadOnlyList<Contact>> ListAllAsync(Guid userId, CancellationToken ct = default)
+        {
+            return await _context.Set<Contact>()
+                .AsNoTracking()
+                .Where(c => c.UserId == userId)
+                .OrderBy(c => c.Name)
+                .ToListAsync(ct);
+        }
     }
 }

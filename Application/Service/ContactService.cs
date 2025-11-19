@@ -22,14 +22,18 @@ namespace Application.Service
         private readonly IValidator<CreateContactRequest> _createValidator;
         private readonly IValidator<UpdateContactRequest> _updateValidator;
         private readonly ISessionService _sessions;
+        private readonly Application.Abstractions.Infrastructure.IRedisCacheService _cache;
 
-        public ContactService(IContactRepository contacts, IUnitOfWork uow, IValidator<CreateContactRequest> createValidator, IValidator<UpdateContactRequest> updateValidator, ISessionService sessions)
+        private static string CacheKey(Guid userId) => $"Contacts:{userId}";
+
+        public ContactService(IContactRepository contacts, IUnitOfWork uow, IValidator<CreateContactRequest> createValidator, IValidator<UpdateContactRequest> updateValidator, ISessionService sessions, Application.Abstractions.Infrastructure.IRedisCacheService cache)
         {
             _contacts = contacts;
             _uow = uow;
             _createValidator = createValidator;
             _updateValidator = updateValidator;
             _sessions = sessions;
+            _cache = cache;
         }
 
         private async Task<Guid?> ResolveUserIdAsync(string? sessionToken, CancellationToken ct)
@@ -59,10 +63,28 @@ namespace Application.Service
                 Source = string.IsNullOrWhiteSpace(request.Source) ? "manual" : request.Source!.Trim()
             };
 
-            await _contacts.AddAsync(entity);
-            await _uow.SaveChangesAsync();
+            // Write-through: update cache first, then DB, rollback cache if DB fails
+            var key = CacheKey(userId.Value);
+            var cached = await _cache.GetAsync<List<ContactDTO>>(key) ??
+                         (await _contacts.ListAllAsync(userId.Value, ct)).Select(ToDto).ToList();
+            var previous = new List<ContactDTO>(cached);
+            var dto = ToDto(entity);
+            cached.Add(dto);
+            cached = cached.OrderBy(c => c.Name).ToList();
+            await _cache.SetAsync(key, cached, TimeSpan.FromDays(7));
 
-            return Result<ContactDTO>.SuccessResult(ToDto(entity), "Created", HttpStatusCode.Created);
+            try
+            {
+                await _contacts.AddAsync(entity);
+                await _uow.SaveChangesAsync();
+            }
+            catch
+            {
+                await _cache.SetAsync(key, previous, TimeSpan.FromDays(7));
+                throw;
+            }
+
+            return Result<ContactDTO>.SuccessResult(dto, "Created", HttpStatusCode.Created);
         }
 
         public async Task<Result<BulkCreateContactsResponse>> CreateManyAsync(string? sessionToken, IEnumerable<CreateContactRequest> requests, CancellationToken ct = default)
@@ -182,10 +204,29 @@ namespace Application.Service
 
             if (toCreate.Count > 0)
             {
-                await _contacts.AddRangeAsync(toCreate);
-                await _uow.SaveChangesAsync();
+                // Cache write-through for bulk
+                var key = CacheKey((Guid)userId);
+                var cached = await _cache.GetAsync<List<ContactDTO>>(key) ??
+                             (await _contacts.ListAllAsync((Guid)userId, ct)).Select(ToDto).ToList();
+                var previous = new List<ContactDTO>(cached);
 
-                resp.Created.AddRange(toCreate.Select(ToDto));
+                var createdDtos = toCreate.Select(ToDto).ToList();
+                cached.AddRange(createdDtos);
+                cached = cached.OrderBy(c => c.Name).ToList();
+                await _cache.SetAsync(key, cached, TimeSpan.FromDays(7));
+
+                try
+                {
+                    await _contacts.AddRangeAsync(toCreate);
+                    await _uow.SaveChangesAsync();
+                }
+                catch
+                {
+                    await _cache.SetAsync(key, previous, TimeSpan.FromDays(7));
+                    throw;
+                }
+
+                resp.Created.AddRange(createdDtos);
             }
 
             resp.CreatedCount = resp.Created.Count;
@@ -204,8 +245,25 @@ namespace Application.Service
             if (existing == null)
                 return Result<bool>.FailureResult("Not found", "NOT_FOUND", HttpStatusCode.NotFound);
 
-            _contacts.Remove(existing);
-            await _uow.SaveChangesAsync();
+            // Update cache first, then DB, rollback on failure
+            var key = CacheKey(uid.Value);
+            var cached = await _cache.GetAsync<List<ContactDTO>>(key) ??
+                         (await _contacts.ListAllAsync(uid.Value, ct)).Select(ToDto).ToList();
+            var previous = new List<ContactDTO>(cached);
+            cached.RemoveAll(c => c.Id == contactId);
+            await _cache.SetAsync(key, cached, TimeSpan.FromDays(7));
+
+            try
+            {
+                _contacts.Remove(existing);
+                await _uow.SaveChangesAsync();
+            }
+            catch
+            {
+                await _cache.SetAsync(key, previous, TimeSpan.FromDays(7));
+                throw;
+            }
+
             return Result<bool>.SuccessResult(true, "Deleted", HttpStatusCode.OK);
         }
 
@@ -213,7 +271,27 @@ namespace Application.Service
         {
             var uid = await ResolveUserIdAsync(sessionToken, ct);
             if (uid == null) return Result<ContactDTO>.FailureResult("Unauthorized", "UNAUTHORIZED", HttpStatusCode.Unauthorized);
-            var entity = await _contacts.GetByIdAsync(uid.Value, contactId, ct);
+            // Try cache first
+            var key = uid.HasValue ? CacheKey(uid.Value) : string.Empty;
+            Contact? entity = null;
+            if (uid.HasValue)
+            {
+                var cached = await _cache.GetAsync<List<ContactDTO>>(key);
+                var cachedDto = cached?.FirstOrDefault(c => c.Id == contactId);
+                if (cachedDto != null)
+                {
+                    entity = new Contact
+                    {
+                        Id = cachedDto.Id,
+                        UserId = cachedDto.UserId,
+                        Name = cachedDto.Name,
+                        Email = cachedDto.Email,
+                        Source = cachedDto.Source
+                    };
+                }
+            }
+
+            entity ??= await _contacts.GetByIdAsync(uid.Value, contactId, ct);
             if (entity == null)
                 return Result<ContactDTO>.FailureResult("Not found", "NOT_FOUND", HttpStatusCode.NotFound);
             return Result<ContactDTO>.SuccessResult(ToDto(entity), "OK", HttpStatusCode.OK);
@@ -223,8 +301,27 @@ namespace Application.Service
         {
             var uid = await ResolveUserIdAsync(sessionToken, ct);
             if (uid == null) return Result<IEnumerable<ContactDTO>>.FailureResult("Unauthorized", "UNAUTHORIZED", HttpStatusCode.Unauthorized);
-            var items = await _contacts.ListAsync(uid.Value, search, page, pageSize, ct);
-            return Result<IEnumerable<ContactDTO>>.SuccessResult(items.Select(ToDto), "OK", HttpStatusCode.OK);
+            // Serve from cache: load full list once, then filter/page in memory
+            var key = CacheKey(uid.Value);
+            var cached = await _cache.GetAsync<List<ContactDTO>>(key);
+            if (cached == null)
+            {
+                cached = (await _contacts.ListAllAsync(uid.Value, ct)).Select(ToDto).ToList();
+                await _cache.SetAsync(key, cached, TimeSpan.FromDays(7));
+            }
+
+            IEnumerable<ContactDTO> query = cached;
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var s = search.Trim().ToLowerInvariant();
+                query = query.Where(c => (c.Name ?? string.Empty).ToLowerInvariant().Contains(s) || (c.Email ?? string.Empty).ToLowerInvariant().Contains(s));
+            }
+
+            var result = query
+                .OrderBy(c => c.Name)
+                .Skip(Math.Max(0, (page - 1) * pageSize))
+                .Take(Math.Max(1, pageSize));
+            return Result<IEnumerable<ContactDTO>>.SuccessResult(result, "OK", HttpStatusCode.OK);
         }
 
         public async Task<Result<ContactDTO>> UpdateAsync(string? sessionToken, Guid contactId, UpdateContactRequest request, CancellationToken ct = default)
@@ -250,10 +347,36 @@ namespace Application.Service
             entity.Email = request.Email.Trim();
             entity.Source = string.IsNullOrWhiteSpace(request.Source) ? entity.Source : request.Source!.Trim();
 
-            _contacts.Update(entity);
-            await _uow.SaveChangesAsync();
+            // Update cache first
+            var key2 = CacheKey(userId.Value);
+            var cached = await _cache.GetAsync<List<ContactDTO>>(key2) ??
+                         (await _contacts.ListAllAsync(userId.Value, ct)).Select(ToDto).ToList();
+            var previous = new List<ContactDTO>(cached);
+            var idx = cached.FindIndex(c => c.Id == contactId);
+            var updatedDto = ToDto(entity);
+            if (idx >= 0)
+            {
+                cached[idx] = updatedDto;
+            }
+            else
+            {
+                cached.Add(updatedDto);
+            }
+            cached = cached.OrderBy(c => c.Name).ToList();
+            await _cache.SetAsync(key2, cached, TimeSpan.FromDays(7));
 
-            return Result<ContactDTO>.SuccessResult(ToDto(entity), "Updated", HttpStatusCode.OK);
+            try
+            {
+                _contacts.Update(entity);
+                await _uow.SaveChangesAsync();
+            }
+            catch
+            {
+                await _cache.SetAsync(key2, previous, TimeSpan.FromDays(7));
+                throw;
+            }
+
+            return Result<ContactDTO>.SuccessResult(updatedDto, "Updated", HttpStatusCode.OK);
         }
 
         private static ContactDTO ToDto(Contact e) => new ContactDTO
