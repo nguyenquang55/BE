@@ -9,6 +9,7 @@ using System.Text.Json.Serialization;
 using Shared.Contracts.Messaging;
 using MassTransit;
 using BE.Hubs;
+using System;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,6 +17,8 @@ builder.Configuration.AddJsonFile("appsettings.json", optional: false, reloadOnC
 
 builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructure(builder.Configuration);
+
+
 
 // sau khi đăng ký IRedisHealthCheckService
 builder.Services.AddSingleton<IRedisHealthCheckService, RedisHealthCheckService>();
@@ -45,8 +48,11 @@ builder.Services.AddSingleton<INotificationHub, Infrastructure.SignalR.Notificat
 builder.Services.AddSingleton<IMessageProcessingService, Application.Service.MessageProcessingService>();
 builder.Services.AddSingleton<IRoutingStore, Infrastructure.Cache.RedisRoutingStore>();
 builder.Services.AddScoped<IMessageEnqueueService, Infrastructure.Messaging.MessageEnqueueService>();
-
+builder.Services.AddHttpClient<IGeminiClient, GeminiClient>(); 
+builder.Services.AddHttpClient<ICalendarService, CalendarService>();
 builder.Services.AddSingleton<ITokenizerService, Infrastructure.Model.BertTokenizerService>();
+
+
 
 // MassTransit unified configuration: publish submitted, consume processed
 builder.Services.AddMassTransit(x =>

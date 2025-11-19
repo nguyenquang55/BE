@@ -27,6 +27,7 @@ namespace Application.Service
         private readonly IConfiguration _configuration;
         private readonly IUserRepository _userRepository;
         private readonly PasswordHasher<User> _passwordHasher;
+        private readonly IContactRepository _contactRepository;
         private readonly IValidator<RegisterRequest> _registerValidator;
         private readonly IValidator<LoginRequest> _loginValidator;
         private readonly IOAuthRepository _oAuthRepository;
@@ -41,7 +42,8 @@ namespace Application.Service
             IConfiguration configuration,
             IJwtProvider jwtProvider,
             IValidator<RegisterRequest> registerValidator,
-            IValidator<LoginRequest> loginValidator)
+            IValidator<LoginRequest> loginValidator,
+            IContactRepository contactRepository)
         {
             _oAuthRepository = oAuthRepository ?? throw new ArgumentNullException(nameof(oAuthRepository));
             _authRepository = authRepository ?? throw new ArgumentNullException(nameof(authRepository));
@@ -54,6 +56,7 @@ namespace Application.Service
             _passwordHasher = new PasswordHasher<User>();
             _registerValidator = registerValidator ?? throw new ArgumentNullException(nameof(registerValidator));
             _loginValidator = loginValidator ?? throw new ArgumentNullException(nameof(loginValidator));
+            _contactRepository = contactRepository ?? throw new ArgumentNullException(nameof(contactRepository));
         }
 
         public async Task<Result<RegisterRespone>> RegisterAsync(RegisterRequest request, CancellationToken ct = default)
@@ -157,6 +160,22 @@ namespace Application.Service
 
 
             await _unitOfWork.SaveChangesAsync();
+
+            // Seed user's contacts into Redis cache after successful login
+            try
+            {
+                var allContacts = await _contactRepository.ListAllAsync(user.Id, ct);
+                var contactDtos = allContacts.Select(c => new Application.Contracts.Contact.ContactDTO
+                {
+                    Id = c.Id,
+                    UserId = c.UserId,
+                    Name = c.Name,
+                    Email = c.Email,
+                    Source = c.Source
+                }).OrderBy(x => x.Name).ToList();
+                await _redis.SetAsync($"Contacts:{user.Id}", contactDtos, TimeSpan.FromDays(7));
+            }
+            catch { /* best-effort cache warmup */ }
             return Result<LoginResponse>.SuccessResult(res, "Đăng nhập thành công", HttpStatusCode.OK);
         }
 

@@ -1,11 +1,13 @@
-﻿using System;
-using System.Threading.Tasks;
+﻿using Application.Abstractions.Infrastructure;
 using Application.Abstractions.Services;
+using Application.Contracts.Contact;
+using Infrastructure.Consumers.Common;
 using MassTransit;
 using Microsoft.Extensions.Logging;
 using Shared.Contracts.Messaging;
-using Infrastructure.Consumers.Common;
-using Application.Abstractions.Infrastructure;
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace Worker.Consumers
 {
@@ -15,10 +17,13 @@ namespace Worker.Consumers
         private readonly IPublishEndpoint _publisher;
         private readonly IRedisCacheService _redisCacheService;
         public readonly ILLMService _llmService;
+        private readonly IGeminiClient _geminiClient;
         private readonly ILogger<UserMessageSubmittedConsumer> _logger;
 
-        public UserMessageSubmittedConsumer(IModelInferenceService inference,IPublishEndpoint publisher, ILogger<UserMessageSubmittedConsumer> logger,IRedisCacheService redisCacheService,ILLMService lLMService)
+
+        public UserMessageSubmittedConsumer(IModelInferenceService inference,IPublishEndpoint publisher, ILogger<UserMessageSubmittedConsumer> logger,IRedisCacheService redisCacheService,ILLMService lLMService,IGeminiClient geminiClient)
         {
+            _geminiClient = geminiClient;
             _llmService = lLMService;
             _redisCacheService = redisCacheService;
             _inference = inference;
@@ -31,7 +36,6 @@ namespace Worker.Consumers
             var evt = context.Message;
 
             //var userId = await _redisCacheService.GetAsync<Guid>($"UserID:{evt.sessionToken}");
-
 
 
             var Mbertresult = await _inference.InferAsync(evt.Payload);

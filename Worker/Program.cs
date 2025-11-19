@@ -1,15 +1,20 @@
 using Application.Abstractions.Common;
 using Application.Abstractions.Infrastructure;
+using Application.Abstractions.Repositories;
 using Application.Abstractions.Services;
 using Application.Service;
 using Ecom.Infrastructure.Persistence;
 using Infrastructure.Cache;
+using Infrastructure.DI;
 using Infrastructure.Model;
 using Infrastructure.Persistence.DatabaseContext;
+using Infrastructure.Persistence.Repositories;
 using MassTransit;
+using Microsoft.EntityFrameworkCore;
 using Shared.Contracts.Messaging;
 using StackExchange.Redis;
 using Worker.Model;
+using static Org.BouncyCastle.Math.EC.ECCurve;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,6 +27,17 @@ builder.Services.AddSingleton<IModelInferenceService, OnnxModelInferenceService>
 builder.Services.AddSingleton<IMessageProcessingService, MessageProcessingService>();
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp => ConnectionMultiplexer.Connect("localhost:6379"));
 builder.Services.AddSingleton<IRedisCacheService, RedisCacheService>();
+builder.Services.AddTransient<IOAuthTokenService,OAuthTokenService>();
+builder.Services.AddTransient<ILLMService, LLMService>();
+builder.Services.AddTransient<IEmailService, EmailService>();
+builder.Services.AddHttpClient<IGeminiClient, GeminiClient>();
+builder.Services.AddHttpClient<ICalendarService, CalendarService>();
+builder.Services.AddTransient<ICalendarService, CalendarService>();
+builder.Services.AddTransient<IOAuthRepository, OAuthRepository>();
+builder.Configuration.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+
+builder.Services.AddDbContext<ApplicationDbContext>(opts =>
+    opts.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddMassTransit(x =>
 {

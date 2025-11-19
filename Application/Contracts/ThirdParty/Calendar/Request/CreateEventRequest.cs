@@ -6,16 +6,23 @@ using System.Threading.Tasks;
 
 namespace Application.Contracts.ThirdParty.Calendar.Request
 {
+    //public class CreateEventRequest
+    //{
+    //    string? Title { get; set; }
+    //    string? Description { get; set; }
+    //    string? Location { get; set; }
+    //    TimeOnly StartTime { get; set; }
+    //    TimeOnly EndTime { get; set; }
+    //    DateTime Date { get; set; }
+    //    bool IsAllDay { get; set; }
+    //    string? TimeZone { get; set; }
+    //    string[]? Attendees { get; set; }
+    //}
     public class CreateEventRequest
     {
-        string? Title { get; set; }
-        string? Description { get; set; }
-        string? Location { get; set; }
-        TimeOnly StartTime { get; set; }
-        TimeOnly EndTime { get; set; }
-        DateTime Date { get; set; }
-        bool IsAllDay { get; set; }
-        string? TimeZone { get; set; }
-        string[]? Attendees { get; set; }
+        public string Title { get; set; }
+        public string StartTime { get; set; }
+        public string EndTime { get; set; }
+        public string Date { get; set; }
     }
 }

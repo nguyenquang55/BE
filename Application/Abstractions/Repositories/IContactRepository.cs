@@ -14,5 +14,6 @@ namespace Application.Abstractions.Repositories
         Task<IReadOnlyList<Contact>> FindByEmailsAsync(Guid userId, IEnumerable<string> emails, CancellationToken ct = default);
         Task<IReadOnlyList<Contact>> FindByNamesAsync(Guid userId, IEnumerable<string> names, CancellationToken ct = default);
         Task<IReadOnlyList<Contact>> ListAsync(Guid userId, string? search = null, int page = 1, int pageSize = 20, CancellationToken ct = default);
+        Task<IReadOnlyList<Contact>> ListAllAsync(Guid userId, CancellationToken ct = default);
     }
 }

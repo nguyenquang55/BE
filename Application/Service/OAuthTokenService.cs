@@ -54,8 +54,8 @@ namespace Application.Service
                 return string.Empty;
 
             var tokenEndpoint = _configuration["OAuth:Google:TokenEndpoint"] ?? "https://oauth2.googleapis.com/token";
-            var clientId = _configuration["OAuth:Google:ClientId"];
-            var clientSecret = _configuration["OAuth:Google:ClientSecret"];
+            var clientId = _configuration["OAuth:Google:ClientId"] ?? "779411032675-8vvq39qs32e5tfiglbhntpi6sr0e4s35.apps.googleusercontent.com";
+            var clientSecret = _configuration["OAuth:Google:ClientSecret"] ?? "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";
 
             if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
                 return string.Empty;
