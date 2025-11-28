@@ -42,6 +42,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(opts =>
 builder.Services.AddMassTransit(x =>
 {
 	x.AddConsumer<Worker.Consumers.UserMessageSubmittedConsumer>();
+	x.AddConsumer<Worker.Consumers.UserPreviewDecisionConsumer>();
 	x.UsingRabbitMq((context, cfgMq) =>
 	{
 		var mqHost = builder.Configuration.GetValue<string>("RabbitMq:Host", "localhost");
@@ -58,6 +59,12 @@ builder.Services.AddMassTransit(x =>
 		{
 			e.PrefetchCount = 1; // sequential processing
 			e.ConfigureConsumer<Worker.Consumers.UserMessageSubmittedConsumer>(context);
+		});
+
+		cfgMq.ReceiveEndpoint("user.msg.confirmed.queue", e =>
+		{
+			e.PrefetchCount = 1;
+			e.ConfigureConsumer<Worker.Consumers.UserPreviewDecisionConsumer>(context);
 		});
 	});
 });

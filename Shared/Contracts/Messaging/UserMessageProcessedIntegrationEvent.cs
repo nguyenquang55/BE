@@ -8,6 +8,7 @@ namespace Shared.Contracts.Messaging
     public record UserMessageProcessedIntegrationEvent(
         string MessageId,
         string? UserId,
+        string ResultType,
         string ConnectionId,
         object ProcessingResult,
         string TraceId,

@@ -59,6 +59,7 @@ builder.Services.AddMassTransit(x =>
 {
     // Consumer for processed messages -> send via SignalR
     x.AddConsumer<UserMessageProcessedConsumer>();
+    x.AddConsumer<UserMessagePreviewConsumer>();
     x.UsingRabbitMq((context, cfgMq) =>
     {
         var mqHost = builder.Configuration.GetValue<string>("RabbitMq:Host", "localhost");
@@ -80,6 +81,11 @@ builder.Services.AddMassTransit(x =>
         cfgMq.ReceiveEndpoint("user.msg.processed.queue", e =>
         {
             e.ConfigureConsumer<UserMessageProcessedConsumer>(context);
+        });
+
+        cfgMq.ReceiveEndpoint("user.msg.preview.queue", e =>
+        {
+            e.ConfigureConsumer<UserMessagePreviewConsumer>(context);
         });
     });
 });

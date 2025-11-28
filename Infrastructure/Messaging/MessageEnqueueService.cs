@@ -37,6 +37,7 @@ namespace Infrastructure.Messaging
                 CreatedAt: DateTimeOffset.UtcNow
             );
 
+            await Task.Delay(100, ct);
             await _publisher.Publish(evt, ct);
             _logger.LogInformation("Published submitted event {MessageId} trace {TraceId}", mid, tid);
             return (mid, tid);

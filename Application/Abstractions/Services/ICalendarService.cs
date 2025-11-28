@@ -1,4 +1,5 @@
-﻿using Application.Contracts.ThirdParty.Calendar.Respone;
+﻿using Application.Contracts.ThirdParty.Calendar.Request;
+using Application.Contracts.ThirdParty.Calendar.Respone;
 using Application.Model;
 using Shared.Common;
 using System;
@@ -15,5 +16,8 @@ namespace Application.Abstractions.Services
         Task<Result<DeleteEventRespone>> DeleteEvent(MberModelRespone modelRespone, Guid userId);
         Task<Result<UpdateEventRespone>> UpdateEvent(MberModelRespone modelRespone, Guid userId);
         Task<Result<SearchEventRespone>> SearchEvent(MberModelRespone modelRespone, Guid userId);
+
+        Task<Result<CalendarOperationPreview>> BuildCreatePreviewAsync(MberModelRespone modelRespone, Guid userId);
+        Task<Result<CreateEventRespone>> ExecuteCreateAsync(CreateEventExecutionPayload payload, Guid userId);
     }
 }

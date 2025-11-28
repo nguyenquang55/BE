@@ -9,6 +9,6 @@ namespace Application.Abstractions.Services
 {
     public interface ILLMService
     {
-        Task<object> ChooseFuction(MberModelRespone modelRespone,Guid userId);
+        Task<object> ChooseFuction(MberModelRespone modelRespone,Guid userId, bool previewOnly = false);
     }
 }

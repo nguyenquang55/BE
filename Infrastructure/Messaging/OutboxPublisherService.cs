@@ -54,7 +54,7 @@ namespace Infrastructure.Outbox
                     var publisher = scope.ServiceProvider.GetRequiredService<IPublishEndpoint>();
 
                     var msgs = await db.OutboxMessages.Where(m => !m.Processed).OrderBy(m => m.OccurredOn).Take(_batchSize).ToListAsync(stoppingToken);
-                    if (msgs.Count == 0) { await Task.Delay(TimeSpan.FromSeconds(_pollSeconds), stoppingToken); continue; }
+                    if (msgs.Count == 0) { await Task.Delay(TimeSpan.FromSeconds(_pollSeconds), stoppingToken);  continue; }
 
                     var options = new ExecutionDataflowBlockOptions { MaxDegreeOfParallelism = _parallel, CancellationToken = stoppingToken };
                     var block = new ActionBlock<OutboxMessage>(async msg =>

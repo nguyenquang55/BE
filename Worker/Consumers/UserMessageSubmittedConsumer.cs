@@ -46,18 +46,21 @@ namespace Worker.Consumers
                 throw new ArgumentException($"User ID không hợp lệ: {evt.userId}");
             }
 
+            await Task.Delay(500);
             var Result = await _llmService.ChooseFuction(Mbertresult, userIdAsGuid);
 
             var processedEvt = new UserMessageProcessedIntegrationEvent(
                 MessageId: evt.MessageId,
+                ResultType: Mbertresult.Intent,
                 UserId: evt.userId,
                 ConnectionId: evt.ConnectionId,
-                ProcessingResult: Mbertresult,
+                ProcessingResult: Result,
                 TraceId: evt.TraceId,
                 ProcessedAt: DateTimeOffset.UtcNow
             );
             await _publisher.Publish(processedEvt);
             _logger.LogInformation("Processed message {MessageId} trace {TraceId}", evt.MessageId, evt.TraceId);
+          
         }
     }
 }

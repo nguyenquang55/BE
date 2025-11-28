@@ -24,7 +24,7 @@ namespace Application.Service
             _calendarService = calendarService;
         }
 
-        public async Task<object> ChooseFuction(MberModelRespone modelRespone, Guid userId)
+        public async Task<object> ChooseFuction(MberModelRespone modelRespone, Guid userId, bool previewOnly = false)
         {
             object? result = null;
             switch (modelRespone.Intent)
@@ -33,7 +33,14 @@ namespace Application.Service
                     result = await _emailService.CheckInbox(modelRespone, userId);
                     break;
                 case "create_event":
-                    result= await _calendarService.CreateEvent(modelRespone, userId);
+                    if (previewOnly)
+                    {
+                        result = await _calendarService.BuildCreatePreviewAsync(modelRespone, userId);
+                    }
+                    else
+                    {
+                        result = await _calendarService.CreateEvent(modelRespone, userId);
+                    }
                     break;
                 case "delete_email":
                     result = await _emailService.DeleteEmail(modelRespone, userId);

@@ -25,7 +25,7 @@ namespace Application.Service
         public async Task<object> CallGemini(string prompt)
         {
             var apiKey = _configuration["GEMINI_API_Key:Key"];
-            var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={apiKey}";
+            var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={apiKey}";
             var requestBody = new
             {
                 contents = new[]

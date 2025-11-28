@@ -21,8 +21,7 @@ namespace Application.Contracts.ThirdParty.Calendar.Request
     public class CreateEventRequest
     {
         public string Title { get; set; }
-        public string StartTime { get; set; }
-        public string EndTime { get; set; }
-        public string Date { get; set; }
+        public string StartDateTime { get; set; }
+        public string EndDateTime { get; set; }
     }
 }
