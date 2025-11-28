@@ -47,20 +47,42 @@ namespace Worker.Consumers
             }
 
             await Task.Delay(500);
-            var Result = await _llmService.ChooseFuction(Mbertresult, userIdAsGuid);
 
-            var processedEvt = new UserMessageProcessedIntegrationEvent(
-                MessageId: evt.MessageId,
-                ResultType: Mbertresult.Intent,
-                UserId: evt.userId,
-                ConnectionId: evt.ConnectionId,
-                ProcessingResult: Result,
-                TraceId: evt.TraceId,
-                ProcessedAt: DateTimeOffset.UtcNow
-            );
-            await _publisher.Publish(processedEvt);
-            _logger.LogInformation("Processed message {MessageId} trace {TraceId}", evt.MessageId, evt.TraceId);
-          
+            if (string.Equals(Mbertresult.Intent, "create_event", StringComparison.OrdinalIgnoreCase))
+            {
+                
+                var result = await _llmService.ChooseFuction(Mbertresult, userIdAsGuid,true);
+
+                var previewEvt = new UserMessagePreviewIntegrationEvent(
+                    MessageId: evt.MessageId,
+                    UserId: evt.userId, 
+                    ConnectionId: evt.ConnectionId,
+                    ResultType: Mbertresult.Intent,
+                    PreviewPayload: result,
+                    TraceId: evt.TraceId,
+                    ExpiresAt: DateTimeOffset.UtcNow.AddMinutes(5) 
+                );
+
+                await _publisher.Publish(previewEvt);
+                _logger.LogInformation("Published preview for message {MessageId} trace {TraceId}", evt.MessageId, evt.TraceId);
+                return;
+            }
+
+            else {                 
+                var result = await _llmService.ChooseFuction(Mbertresult, userIdAsGuid);
+                var processedEvt = new UserMessageProcessedIntegrationEvent(
+                    MessageId: evt.MessageId,
+                    UserId: evt.userId,
+                    ResultType: Mbertresult.Intent,
+                    ConnectionId: evt.ConnectionId,
+                    ProcessingResult: result,
+                    TraceId: evt.TraceId,
+                    ProcessedAt: DateTimeOffset.UtcNow
+                );
+                await _publisher.Publish(processedEvt);
+                _logger.LogInformation("Published processed for message {MessageId} trace {TraceId}", evt.MessageId, evt.TraceId);
+            }
+
         }
     }
 }
