@@ -25,7 +25,7 @@ namespace Infrastructure.Persistence.Repositories
         public async Task<User?> GetUserByEmail(string email)
         {
             if (string.IsNullOrWhiteSpace(email))
-                throw new ArgumentException("Email không được để trống", nameof(email));
+                throw new ArgumentException("Email must not be empty", nameof(email));
 
             var normalizedEmail = email.Trim().ToLowerInvariant();
 

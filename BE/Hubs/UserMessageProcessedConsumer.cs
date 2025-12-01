@@ -35,6 +35,7 @@ namespace BE.Hubs
             var payload = JsonSerializer.Serialize(new
             {
                 type = RealtimeMessageTypes.Processed,
+                ResultType = evt.ResultType,
                 payload = evt.ProcessingResult,
                 messageId = evt.MessageId,
                 traceId = evt.TraceId,

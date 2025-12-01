@@ -12,5 +12,6 @@ namespace Application.Abstractions.Repositories
     {
         Task<bool> IsLinkedForUserAsync(Guid userId, string provider, string? providerEmail, string? providerUserId, CancellationToken ct = default);
         Task<bool> IsEmailLinkedByOtherAsync(Guid currentUserId, string provider, string providerEmail, CancellationToken ct = default);
+        Task<bool> HasAnyProviderAsync(Guid userId, string provider, CancellationToken ct = default);
     }
 }

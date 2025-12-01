@@ -69,7 +69,7 @@ namespace Application.Service
             var session = await _sessionRepository.GetSessionByToken(sessionToken, ct);
             if (session == null || session.IsRevoked == true)
             {
-                return Result<SessionDTO?>.FailureResult("Session không hợp lệ hoặc đã hết hạn", null, System.Net.HttpStatusCode.Unauthorized);
+                return Result<SessionDTO?>.FailureResult("Session is invalid or has expired", null, System.Net.HttpStatusCode.Unauthorized);
             }
 
             var sessionDto = new SessionDTO

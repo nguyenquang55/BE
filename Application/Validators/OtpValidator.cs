@@ -14,7 +14,7 @@ namespace Application.Validators
         {
             RuleFor(x => x.Code)
             .NotEmpty().WithMessage("OTP is required")
-            .MinimumLength(6).WithMessage("OTP must have 6 number");
+            .MinimumLength(6).WithMessage("OTP must be 6 digits");
         }
     }
 }

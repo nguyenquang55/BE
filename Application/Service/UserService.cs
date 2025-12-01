@@ -31,7 +31,7 @@ namespace Application.Service
             if (string.IsNullOrWhiteSpace(sessionToken))
             {
                 return Result<LoginResponse>.FailureResult(
-                    "Phiên đăng nhập không hợp lệ hoặc đã hết hạn",
+                    "Session is invalid or has expired",
                     "INVALID_SESSION",
                     HttpStatusCode.Unauthorized);
             }
@@ -40,7 +40,7 @@ namespace Application.Service
             if (sessionResult is null || !sessionResult.Success || sessionResult.Data is null)
             {
                 return Result<LoginResponse>.FailureResult(
-                    "Phiên đăng nhập không hợp lệ hoặc đã hết hạn",
+                    "Session is invalid or has expired",
                     "INVALID_SESSION",
                     HttpStatusCode.Unauthorized);
             }
@@ -59,7 +59,7 @@ namespace Application.Service
             if (user is null)
             {
                 return Result<LoginResponse>.FailureResult(
-                    "Không tìm thấy người dùng",
+                    "User not found",
                     "USER_NOT_FOUND",
                     HttpStatusCode.NotFound);
             }
