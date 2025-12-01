@@ -15,7 +15,7 @@ namespace Application.Abstractions.Services
         Task<Result<CreateEventRespone>> CreateEvent(MberModelRespone modelRespone, Guid userId);
         Task<Result<DeleteEventRespone>> DeleteEvent(MberModelRespone modelRespone, Guid userId);
         Task<Result<UpdateEventRespone>> UpdateEvent(MberModelRespone modelRespone, Guid userId);
-        Task<Result<SearchEventRespone>> SearchEvent(MberModelRespone modelRespone, Guid userId);
+        Task<Result<List<SearchEventRespone>>> SearchEvents(MberModelRespone modelRespone, Guid userId);
 
         Task<Result<CalendarOperationPreview>> BuildCreatePreviewAsync(MberModelRespone modelRespone, Guid userId);
         Task<Result<CreateEventRespone>> ExecuteCreateAsync(CreateEventExecutionPayload payload, Guid userId);

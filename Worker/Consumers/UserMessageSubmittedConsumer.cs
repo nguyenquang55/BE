@@ -43,7 +43,7 @@ namespace Worker.Consumers
             {
                 _logger.LogWarning("Invalid UserId format: {UserId} for MessageId: {MessageId}",
                     evt.userId, evt.MessageId);
-                throw new ArgumentException($"User ID không hợp lệ: {evt.userId}");
+                throw new ArgumentException($"Invalid User ID: {evt.userId}");
             }
 
             await Task.Delay(500);

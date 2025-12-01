@@ -23,7 +23,7 @@ namespace Infrastructure.Persistence.Repositories
         public async Task DisableSessionAsync(Guid userID,string reason ,CancellationToken ct = default)
         {
             if (userID == Guid.Empty)
-                throw new ArgumentException("UserID không tồn tại", nameof(userID));
+                throw new ArgumentException("UserID does not exist", nameof(userID));
 
             var sessions = await _context.Set<Session>().Where(s => s.UserId == userID && !s.IsRevoked).ToListAsync(ct);
             if (sessions == null || sessions.Count == 0)
@@ -42,7 +42,7 @@ namespace Infrastructure.Persistence.Repositories
         public async Task<Session?> GetSessionByToken(string Token, CancellationToken ct = default)
         {
             if (string.IsNullOrWhiteSpace(Token))
-                throw new ArgumentException("Token không tồn tại", nameof(Token));
+                throw new ArgumentException("Token does not exist", nameof(Token));
 
             var session = await _context.Set<Session>().Where(s => s.SessionToken == Token && s.IsRevoked == false).FirstOrDefaultAsync(ct);
             if (session == null)

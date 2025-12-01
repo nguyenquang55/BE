@@ -219,7 +219,7 @@ namespace Application.Service
                 }
                 catch
                 {
-                    // ignore decoding errors
+
                 }
             }
 
@@ -228,32 +228,31 @@ namespace Application.Service
                 return Result<string>.FailureResult("Cannot determine provider user id (sub).", string.Empty, System.Net.HttpStatusCode.BadRequest);
             }
 
-            // Check if already linked; if yes, inform and do not save
             var currentUserId = Guid.Parse(userId);
             var providerEmail = userInfo?.Email ?? string.Empty;
+            bool isFirstProvider = false;
 
             try
             {
-                // If this email is linked by another account -> conflict
                 if (!string.IsNullOrWhiteSpace(providerEmail))
                 {
                     var linkedByOther = await _oAuthProviderRepository.IsEmailLinkedByOtherAsync(currentUserId, providerName, providerEmail);
                     if (linkedByOther)
                     {
                         var payload = JsonSerializer.Serialize(new { status = "email-linked-by-other", email = providerEmail });
-                        return Result<string>.FailureResult("Email đã được liên kết bởi tài khoản khác", payload, System.Net.HttpStatusCode.Conflict);
+                        return Result<string>.FailureResult("Email is already linked by another account", payload, System.Net.HttpStatusCode.Conflict);
                     }
                 }
 
-                // If this user already linked this provider account -> just inform
+                isFirstProvider = !(await _oAuthProviderRepository.HasAnyProviderAsync(currentUserId, providerName));
+
                 var alreadyLinked = await _oAuthProviderRepository.IsLinkedForUserAsync(currentUserId, providerName, providerEmail, providerUserId);
                 if (alreadyLinked)
                 {
-                    var payload = JsonSerializer.Serialize(new { status = "already-linked", email = providerEmail });
+                    var payload = JsonSerializer.Serialize(new { status = "already-linked", email = providerEmail, prime = false });
                     return Result<string>.SuccessResult(payload, "Tài khoản đã được liên kết trước đó", System.Net.HttpStatusCode.OK);
                 }
 
-                // Save new linkage and token
                 OAuthProvider oAuthProvider = new OAuthProvider
                 {
                     UserId = currentUserId,
@@ -271,6 +270,7 @@ namespace Application.Service
                     Scopes = token.scope,
                     RefreshToken = token.refresh_token,
                 });
+
                 await _redisCacheService.SetAsync($"OAuthAccessToken:{userId}", token.access_token, TimeSpan.FromSeconds(token.expires_in));
                 await _redisCacheService.SetAsync($"OAuthRefreshToken:{userId}", token.refresh_token ?? string.Empty, TimeSpan.FromDays(30));
                 await _unitOfWork.SaveChangesAsync();
@@ -283,7 +283,8 @@ namespace Application.Service
 
             var resultPayload = JsonSerializer.Serialize(new
             {
-                status = "good" ,
+                status = "good",
+                prime = isFirstProvider
             });
 
             return Result<string>.SuccessResult(resultPayload, "Callback handled", System.Net.HttpStatusCode.OK);

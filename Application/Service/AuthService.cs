@@ -68,7 +68,7 @@ namespace Application.Service
             var emailNormalized = request.Email.Trim().ToLowerInvariant();
             var existingUser = await _authRepository.GetUserByEmail(emailNormalized);
             if (existingUser is not null)
-                return Result<RegisterRespone>.FailureResult("Email đã tồn tại trong hệ thống", null, HttpStatusCode.Conflict);
+                return Result<RegisterRespone>.FailureResult("Email already exists in the system", null, HttpStatusCode.Conflict);
 
             var user = new User
             {
@@ -98,14 +98,14 @@ namespace Application.Service
 
             var user = await _authRepository.GetUserByEmail(request.Email);
             if (user is null)
-                return Result<LoginResponse>.FailureResult("Sai email hoặc mật khẩu", null, HttpStatusCode.Unauthorized);
+                return Result<LoginResponse>.FailureResult("Incorrect email or password", null, HttpStatusCode.Unauthorized);
 
             var verify = _passwordHasher.VerifyHashedPassword(user, user.PasswordHash!, request.Password);
             if (verify == PasswordVerificationResult.Failed)
-                return Result<LoginResponse>.FailureResult("Sai email hoặc mật khẩu", null, HttpStatusCode.Unauthorized);
+                return Result<LoginResponse>.FailureResult("Incorrect email or password", null, HttpStatusCode.Unauthorized);
 
             if (!user.IsActive)
-                return Result<LoginResponse>.FailureResult("Tài khoản bị khóa hoặc chưa kích hoạt", null, HttpStatusCode.Forbidden);
+                return Result<LoginResponse>.FailureResult("Account is locked or not activated", null, HttpStatusCode.Forbidden);
 
             try
             {
@@ -113,7 +113,7 @@ namespace Application.Service
             }
             catch (Exception ex)
             {
-                return Result<LoginResponse>.FailureResult("Đăng nhập thất bại", ex.Message, HttpStatusCode.InternalServerError);
+                return Result<LoginResponse>.FailureResult("Login failed", ex.Message, HttpStatusCode.InternalServerError);
             }
 
 
@@ -175,7 +175,7 @@ namespace Application.Service
                 }).OrderBy(x => x.Name).ToList();
                 await _redis.SetAsync($"Contacts:{user.Id}", contactDtos, TimeSpan.FromDays(7));
             }
-            catch { /* best-effort cache warmup */ }
+            catch {}
             return Result<LoginResponse>.SuccessResult(res, "Đăng nhập thành công", HttpStatusCode.OK);
         }
 
@@ -186,9 +186,9 @@ namespace Application.Service
                 return Task.FromResult(Result<LoginResponse>.FailureResult("Session token is required", "VALIDATION_ERROR", System.Net.HttpStatusCode.BadRequest));
 
             if (string.IsNullOrWhiteSpace(refreshToken))
-                return Task.FromResult(Result<LoginResponse>.FailureResult("Refresh token không hợp lệ", null, HttpStatusCode.BadRequest));
+                return Task.FromResult(Result<LoginResponse>.FailureResult("Invalid refresh token", null, HttpStatusCode.BadRequest));
 
-            return Task.FromResult(Result<LoginResponse>.FailureResult("Chức năng làm mới token chưa được hỗ trợ", "NOT_IMPLEMENTED", HttpStatusCode.NotImplemented));
+            return Task.FromResult(Result<LoginResponse>.FailureResult("Token refresh is not supported", "NOT_IMPLEMENTED", HttpStatusCode.NotImplemented));
         }
 
         public async Task<Result<string>> LogoutAsync(string? sessionToken = null, CancellationToken ct = default)
@@ -198,7 +198,7 @@ namespace Application.Service
                 var session = await _sessionRepository.GetSessionByToken(sessionToken!, ct: ct);
                 if (session == null)
                 {
-                    return Result<string>.FailureResult("Không tìm thấy session", null, HttpStatusCode.BadRequest);
+                    return Result<string>.FailureResult("Session not found", null, HttpStatusCode.BadRequest);
                 }
                 else
                 {
@@ -209,16 +209,16 @@ namespace Application.Service
             }
             catch (Exception ex)
             {
-                return Result<string>.FailureResult("Đăng xuất thất bại", ex.Message, HttpStatusCode.InternalServerError);
+                return Result<string>.FailureResult("Logout failed", ex.Message, HttpStatusCode.InternalServerError);
             }
         }
 
         public Task<Result<bool>> ValidateRefreshTokenAsync(string refreshToken, string? sessionId = null, CancellationToken ct = default)
         {
             if (string.IsNullOrWhiteSpace(refreshToken))
-                return Task.FromResult(Result<bool>.FailureResult("Refresh token không hợp lệ", null, HttpStatusCode.BadRequest));
+                return Task.FromResult(Result<bool>.FailureResult("Invalid refresh token", null, HttpStatusCode.BadRequest));
 
-            return Task.FromResult(Result<bool>.FailureResult("Xác thực refresh token chưa được hỗ trợ", "NOT_IMPLEMENTED", HttpStatusCode.NotImplemented));
+            return Task.FromResult(Result<bool>.FailureResult("Refresh token validation is not supported", "NOT_IMPLEMENTED", HttpStatusCode.NotImplemented));
         }
     }
 }

@@ -61,7 +61,7 @@ namespace Application.Service
                     result = await _emailService.SearchEmail(modelRespone, userId);
                     break;
                 case "search_event":
-                    result = await _calendarService.SearchEvent(modelRespone, userId);
+                    result = await _calendarService.SearchEvents(modelRespone, userId);
                     break;
                 case "send_email":
                     result = await _emailService.SendEmail(modelRespone, userId);
@@ -70,7 +70,7 @@ namespace Application.Service
                     result = await _calendarService.UpdateEvent(modelRespone, userId);
                     break;
                 default:
-                    throw new NotSupportedException($"Intent '{modelRespone.Intent}' không được hỗ trợ.");
+                    throw new NotSupportedException($"Intent '{modelRespone.Intent}' is not supported.");
             }
             return result;
         }

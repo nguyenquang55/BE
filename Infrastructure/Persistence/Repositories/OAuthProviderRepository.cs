@@ -43,5 +43,13 @@ namespace Infrastructure.Persistence.Repositories
                                && p.ProviderEmail == providerEmail
                                && p.UserId != currentUserId, ct);
         }
+
+        public async Task<bool> HasAnyProviderAsync(Guid userId, string provider, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(provider)) throw new ArgumentException("provider is required", nameof(provider));
+            return await _context.OAuthProviders
+                .AsNoTracking()
+                .AnyAsync(p => p.UserId == userId && p.Provider == provider, ct);
+        }
     }
 }
