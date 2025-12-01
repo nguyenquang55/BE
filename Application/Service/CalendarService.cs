@@ -61,12 +61,12 @@ namespace Application.Service
             throw new NotImplementedException();
         }
 
-        public async Task<Result<List<SearchEventRespone>>> SearchEvents(MberModelRespone modelRespone, Guid userId)
+        public async Task<Result<SearchEventLLMRespone>> SearchEvents(MberModelRespone modelRespone, Guid userId)
         {
             string accessToken = await _oauthTokenService.GetAccessToken(userId);
             if (string.IsNullOrEmpty(accessToken))
             {
-                return Result<List<SearchEventRespone>>.FailureResult("Access token not found.");
+                return Result<SearchEventLLMRespone>.FailureResult("Access token not found.");
             }
 
             string prompt = $@"hãy phân tích câu ""{modelRespone.InputText}"" theo mẫu json sau:
@@ -87,10 +87,10 @@ namespace Application.Service
             }
             catch
             {
-                return Result<List<SearchEventRespone>>.FailureResult("Unable to parse event information.");
+                return Result<SearchEventLLMRespone>.FailureResult("Unable to parse event information.");
             }
 
-            if (calendar == null) return Result<List<SearchEventRespone>>.FailureResult("Event information is incomplete.");
+            if (calendar == null) return Result<SearchEventLLMRespone>.FailureResult("Event information is incomplete.");
 
             var googleService = new Google.Apis.Calendar.v3.CalendarService(new BaseClientService.Initializer()
             {
@@ -226,12 +226,8 @@ namespace Application.Service
                 } while (!string.IsNullOrEmpty(pageToken));
 
                 if (potentialEvents.Count == 0)
-                    return Result<List<SearchEventRespone>>.FailureResult("No events found in the specified time range.");
+                    return Result<SearchEventLLMRespone>.FailureResult("No events found in the specified time range.");
 
-                if (string.IsNullOrWhiteSpace(calendar.Title))
-                {
-                    return Result<List<SearchEventRespone>>.SuccessResult(potentialEvents);
-                }
 
                 var simplifiedList = potentialEvents.Select(e => new
                 {
@@ -243,18 +239,14 @@ namespace Application.Service
                 string eventsJson = JsonSerializer.Serialize(simplifiedList);
 
                 string filterPrompt = $@"
-                Tôi đang tìm kiếm sự kiện trong lịch với ý định: ""{calendar.Title}"".
-                Dưới đây là danh sách các sự kiện hiện có (JSON):
+                Ý định tìm kiếm: ""{calendar.Title}"".
+                Danh sách sự kiện (JSON):
                 {eventsJson}
 
-                Nhiệm vụ: Hãy chọn ra các sự kiện có ý nghĩa phù hợp nhất với ý định tìm kiếm trên.
-                - Chấp nhận tìm kiếm gần đúng, đồng nghĩa (ví dụ: tìm 'họp' thì chấp nhận 'meeting', 'sync').
-                - Nếu tìm 'ăn trưa' thì chấp nhận 'lunch', 'tiệc'.
-            
-                OUTPUT: Chỉ trả về một mảng JSON chứa các chuỗi ID của sự kiện phù hợp. 
-                Ví dụ: [""id_1"", ""id_2""]
-                Nếu không có sự kiện nào khớp, trả về [].
-                Tuyệt đối không giải thích thêm, không dùng markdown block.";
+                Hãy chọn ID các sự kiện phù hợp nhất với ý định.
+                - Chấp nhận gần đúng/đồng nghĩa (ví dụ: 'họp' ~ 'meeting', 'sync').
+                - Nếu không có sự kiện nào khớp, trả về [].
+                OUTPUT: Chỉ trả về mảng JSON ID, ví dụ: [""id_1"", ""id_2""]";
 
 
                 await Task.Delay(500);
@@ -290,14 +282,64 @@ namespace Application.Service
                     }
                 }
 
-                if (finalResult.Count == 0)
-                    return Result<List<SearchEventRespone>>.FailureResult($"Found events on this day but none matched '{calendar.Title}'.");
+                var composeList = finalResult.Select(e => new
+                {
+                    Title = e.Title,
+                    Start = e.StartTime.ToString("yyyy-MM-dd HH:mm"),
+                    End = e.EndTime.ToString("yyyy-MM-dd HH:mm")
+                }).ToList();
 
-                return Result<List<SearchEventRespone>>.SuccessResult(finalResult);
+                string composeJson = JsonSerializer.Serialize(composeList);
+                string userInput = modelRespone?.InputText ?? string.Empty;
+                bool isVietnamese = false;
+                if (!string.IsNullOrWhiteSpace(userInput))
+                {
+                    var lower = userInput.ToLowerInvariant();
+                    string viChars = "ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ";
+                    isVietnamese = lower.IndexOfAny(viChars.ToCharArray()) >= 0;
+                }
+
+                string composePrompt = isVietnamese
+                    ? $@"
+                Người dùng hỏi: ""{modelRespone?.InputText}"".
+                Đây là các sự kiện phù hợp (JSON):
+                {composeJson}
+
+                Hãy trả lời bằng tiếng Việt, tự nhiên, súc tích:
+                - Tóm tắt số lượng và liệt kê tiêu đề + thời gian (giờ:phút, ngày/tháng).
+                - Nếu chỉ có 1 sự kiện, trả lời trực tiếp.
+                - Nếu không có sự kiện, nói rõ không tìm thấy.
+                - Không dùng markdown code block."
+                    : $@"
+                User asked: ""{modelRespone?.InputText}"".
+                Here are the matched events (JSON):
+                {composeJson}
+
+                Reply in natural, concise English:
+                - Summarize the count and list title + time (HH:mm, dd/MM).
+                - If only 1 event, answer directly.
+                - If none, say clearly no events found.
+                - Do not use markdown code blocks.";
+
+                var llmCompose = await _geminiClient.CallGemini(composePrompt);
+                var answer = llmCompose?.ToString()?.Replace("```", "").Trim();
+                if (string.IsNullOrWhiteSpace(answer))
+                {
+                    if (finalResult.Count == 0)
+                        answer = isVietnamese
+                            ? $"Không tìm thấy sự kiện phù hợp với '{calendar.Title}'."
+                            : $"No events found matching '{calendar.Title}'.";
+                    else
+                        answer = isVietnamese
+                            ? string.Join("; ", finalResult.Select(e => $"{e.Title} ({e.StartTime:HH:mm dd/MM})"))
+                            : string.Join("; ", finalResult.Select(e => $"{e.Title} ({e.StartTime:HH:mm dd/MM})"));
+                }
+
+                return Result<SearchEventLLMRespone>.SuccessResult(new SearchEventLLMRespone { Results = answer });
             }
             catch (Exception ex)
             {
-                return Result<List<SearchEventRespone>>.FailureResult($"Error: {ex.Message}");
+                return Result<SearchEventLLMRespone>.FailureResult($"Error: {ex.Message}");
             }
         }
 

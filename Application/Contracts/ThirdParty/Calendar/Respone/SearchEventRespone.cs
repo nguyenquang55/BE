@@ -13,4 +13,8 @@ namespace Application.Contracts.ThirdParty.Calendar.Respone
         public DateTime StartTime { get; set; }
         public DateTime EndTime { get; set; }
     }
+    public class SearchEventLLMRespone
+    {
+        public string? Results { get; set; }
+    }
 }
