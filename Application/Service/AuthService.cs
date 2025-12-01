@@ -135,6 +135,7 @@ namespace Application.Service
                 DisplayName = user.DisplayName,
                 Timezone = user.Timezone,
                 IsActive = user.IsActive,
+                UserId = user.Id,
                 AuthProviders = (userWithProviders.AuthProviders ?? new List<OAuthProvider>())
                     .Select(p => new OAuthProviderDTO
                     {
