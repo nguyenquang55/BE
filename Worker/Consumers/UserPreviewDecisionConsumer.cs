@@ -66,33 +66,33 @@ namespace Worker.Consumers
                             }
                         case "update_event":
                             {
-                                UpdateEventExecutionPayload? payload = null;
+                                List<UpdateEventExecutionPayload>? payload = null;
                                 if (evt.ExecutionPayload != null)
                                 {
                                     var payloadJson = JsonSerializer.Serialize(evt.ExecutionPayload);
                                     var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                                    payload = JsonSerializer.Deserialize<UpdateEventExecutionPayload>(payloadJson, options);
+                                    payload = JsonSerializer.Deserialize<List<UpdateEventExecutionPayload>>(payloadJson, options);
                                 }
-                                if (payload == null || string.IsNullOrWhiteSpace(payload.EventId))
+                                if (payload == null)
                                     throw new InvalidOperationException("Invalid execution payload for update_event");
 
                                 if (!Guid.TryParse(evt.UserId, out var userId))
                                     throw new InvalidOperationException("Invalid userId in decision event");
 
-                                var res = await _calendarService.ExecuteUpdateAsync(payload, userId);
+                                var res = await _calendarService.ExecuteUpdateAsync(payload[0], userId);
                                 processingResult = res;
                                 break;
                             }
                         case "delete_event":
                             {
-                                DeleteEventExecutionPayload? payload = null;
+                                List<DeleteEventExecutionPayload>? payload = null;
                                 if (evt.ExecutionPayload != null)
                                 {
                                     var payloadJson = JsonSerializer.Serialize(evt.ExecutionPayload);
                                     var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                                    payload = JsonSerializer.Deserialize<DeleteEventExecutionPayload>(payloadJson, options);
+                                    payload = JsonSerializer.Deserialize<List<DeleteEventExecutionPayload>>(payloadJson, options);
                                 }
-                                if (payload == null || string.IsNullOrWhiteSpace(payload.EventId))
+                                if (payload == null)
                                     throw new InvalidOperationException("Invalid execution payload for delete_event");
 
                                 if (!Guid.TryParse(evt.UserId, out var userId))

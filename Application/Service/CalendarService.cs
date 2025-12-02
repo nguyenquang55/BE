@@ -274,7 +274,7 @@ namespace Application.Service
             }
         }
 
-        public async Task<Result<DeleteEventRespone>> ExecuteDeleteAsync(DeleteEventExecutionPayload payload, Guid userId)
+        public async Task<Result<DeleteEventRespone>> ExecuteDeleteAsync(List<DeleteEventExecutionPayload> payload, Guid userId)
         {
             string accessToken = await _oauthTokenService.GetAccessToken(userId);
             if (string.IsNullOrEmpty(accessToken))
@@ -288,13 +288,27 @@ namespace Application.Service
                     ApplicationName = "CalendarOAuthDemo"
                 });
 
-                var delReq = googleService.Events.Delete("primary", payload.EventId);
-                await delReq.ExecuteAsync();
-                return Result<DeleteEventRespone>.SuccessResult(new DeleteEventRespone { IsDeleted = true });
+                bool allDeleted = true;
+                foreach (var payloadid in payload)
+                {
+                    try
+                    {
+                        var delReq = googleService.Events.Delete("primary", payloadid.EventId);
+                        await delReq.ExecuteAsync();
+                    }
+                    catch
+                    {
+                        allDeleted = false;
+                    }
+                }
+                if (allDeleted)
+                    return Result<DeleteEventRespone>.SuccessResult(new DeleteEventRespone { IsDeleted = true });
+                else
+                    return Result<DeleteEventRespone>.FailureResult("Some events could not be deleted.");
             }
             catch (Exception ex)
             {
-                return Result<DeleteEventRespone>.FailureResult($"Error deleting Google Calendar event: {ex.Message}");
+                return Result<DeleteEventRespone>.FailureResult($"Error deleting Google Calendar events: {ex.Message}");
             }
         }
 
