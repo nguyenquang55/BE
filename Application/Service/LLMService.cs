@@ -46,7 +46,14 @@ namespace Application.Service
                     result = await _emailService.DeleteEmail(modelRespone, userId);
                     break;
                 case "delete_event":
-                    result  = await _calendarService.DeleteEvent(modelRespone, userId);
+                    if (previewOnly)
+                    {
+                        result = await _calendarService.BuildDeletePreviewAsync(modelRespone, userId);
+                    }
+                    else
+                    {
+                        result  = await _calendarService.DeleteEvent(modelRespone, userId);
+                    }
                     break;
                 case "forward_email":
                     result = await _emailService.ForwardEmail(modelRespone, userId);
@@ -67,7 +74,14 @@ namespace Application.Service
                     result = await _emailService.SendEmail(modelRespone, userId);
                     break;
                 case "update_event":
-                    result = await _calendarService.UpdateEvent(modelRespone, userId);
+                    if (previewOnly)
+                    {
+                        result = await _calendarService.BuildUpdatePreviewAsync(modelRespone, userId);
+                    }
+                    else
+                    {
+                        result = await _calendarService.UpdateEvent(modelRespone, userId);
+                    }
                     break;
                 default:
                     throw new NotSupportedException($"Intent '{modelRespone.Intent}' is not supported.");

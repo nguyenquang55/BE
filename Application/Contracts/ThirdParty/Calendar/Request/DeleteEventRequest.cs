@@ -8,9 +8,8 @@ namespace Application.Contracts.ThirdParty.Calendar.Request
 {
     public class DeleteEventRequest
     {
-        string? Title { get; set; }
-        DateTime StartTime { get; set; }
-        DateTime EndTime { get; set; }
-        bool IsAllDay { get; set; }
+        string Title { get; set; }
+        string StartDateTime { get; set; }
+        string EndDateTime { get; set; }
     }
 }

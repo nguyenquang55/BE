@@ -7,6 +7,7 @@ using MassTransit;
 using Microsoft.Extensions.Logging;
 using Shared.Contracts.Messaging;
 using Shared.Common;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace Worker.Consumers
 {
@@ -40,8 +41,8 @@ namespace Worker.Consumers
                     switch ((evt.ResultType ?? string.Empty).ToLowerInvariant())
                     {
                         case "create_event":
-                        {
-                            CreateEventExecutionPayload? payload = null;
+                            {
+                                CreateEventExecutionPayload? payload = null;
                                 if (evt.ExecutionPayload != null)
                                 {
                                     var payloadJson = JsonSerializer.Serialize(evt.ExecutionPayload);
@@ -54,18 +55,57 @@ namespace Worker.Consumers
                                     payload = JsonSerializer.Deserialize<CreateEventExecutionPayload>(payloadJson, options);
                                 }
                                 if (payload == null)
-                                throw new InvalidOperationException("Invalid execution payload for create_event");
+                                    throw new InvalidOperationException("Invalid execution payload for create_event");
 
-                            if (!Guid.TryParse(evt.UserId, out var userId))
-                                throw new InvalidOperationException("Invalid userId in decision event");
+                                if (!Guid.TryParse(evt.UserId, out var userId))
+                                    throw new InvalidOperationException("Invalid userId in decision event");
 
-                            var res = await _calendarService.ExecuteCreateAsync(payload, userId);
-                            processingResult = res;
-                            break;
-                        }
+                                var res = await _calendarService.ExecuteCreateAsync(payload, userId);
+                                processingResult = res;
+                                break;
+                            }
+                        case "update_event":
+                            {
+                                UpdateEventExecutionPayload? payload = null;
+                                if (evt.ExecutionPayload != null)
+                                {
+                                    var payloadJson = JsonSerializer.Serialize(evt.ExecutionPayload);
+                                    var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                                    payload = JsonSerializer.Deserialize<UpdateEventExecutionPayload>(payloadJson, options);
+                                }
+                                if (payload == null || string.IsNullOrWhiteSpace(payload.EventId))
+                                    throw new InvalidOperationException("Invalid execution payload for update_event");
+
+                                if (!Guid.TryParse(evt.UserId, out var userId))
+                                    throw new InvalidOperationException("Invalid userId in decision event");
+
+                                var res = await _calendarService.ExecuteUpdateAsync(payload, userId);
+                                processingResult = res;
+                                break;
+                            }
+                        case "delete_event":
+                            {
+                                DeleteEventExecutionPayload? payload = null;
+                                if (evt.ExecutionPayload != null)
+                                {
+                                    var payloadJson = JsonSerializer.Serialize(evt.ExecutionPayload);
+                                    var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                                    payload = JsonSerializer.Deserialize<DeleteEventExecutionPayload>(payloadJson, options);
+                                }
+                                if (payload == null || string.IsNullOrWhiteSpace(payload.EventId))
+                                    throw new InvalidOperationException("Invalid execution payload for delete_event");
+
+                                if (!Guid.TryParse(evt.UserId, out var userId))
+                                    throw new InvalidOperationException("Invalid userId in decision event");
+
+                                var res = await _calendarService.ExecuteDeleteAsync(payload, userId);
+                                processingResult = res;
+                                break;
+                            }
                         default:
                             throw new NotSupportedException($"Unsupported ResultType '{evt.ResultType}' for decision execution");
                     }
+      
                 }
             }
             catch (Exception ex)

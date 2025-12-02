@@ -5,7 +5,7 @@ namespace Application.Contracts.ThirdParty.Calendar.Respone
 {
     public class CalendarOperationPreview
     {
-        public string Action { get; set; } = "create"; // create|update|delete
+        public string? Action { get; set; }// create|update|delete
         public string? Title { get; set; }
         public DateTime? Start { get; set; }
         public DateTime? End { get; set; }
