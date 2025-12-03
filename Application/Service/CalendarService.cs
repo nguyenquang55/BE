@@ -95,7 +95,7 @@ namespace Application.Service
                 {
                     return Task.FromResult(Result<DeleteEventRespone>.FailureResult("Invalid execution payload."));
                 }
-                return ExecuteDeleteAsync(execPayloadObj, userId);
+                return ExecuteDeleteAsync(new List<DeleteEventExecutionPayload> { execPayloadObj }, userId);
             }
             return Task.FromResult(Result<DeleteEventRespone>.FailureResult("No events to delete."));
         }
@@ -175,7 +175,7 @@ namespace Application.Service
                 {
                     return Task.FromResult(Result<UpdateEventRespone>.FailureResult("Invalid execution payload."));
                 }
-                return ExecuteUpdateAsync(execPayloadObj, userId);
+                return ExecuteUpdateAsync(new List<UpdateEventExecutionPayload> {execPayloadObj},userId);
             }
             return Task.FromResult(Result<UpdateEventRespone>.FailureResult("No events to update."));
         }
@@ -183,28 +183,111 @@ namespace Application.Service
         public async Task<Result<List<CalendarOperationPreview>>> BuildUpdatePreviewAsync(MberModelRespone modelRespone, Guid userId)
         {
             var candidatesRes = await SearchEventsHelper(modelRespone, userId);
+
             if (!candidatesRes.Success || candidatesRes.Data == null || candidatesRes.Data.Count == 0)
             {
-                return Result<List<CalendarOperationPreview>>.FailureResult("Can not find matching events");
+                return Result<List<CalendarOperationPreview>>.FailureResult("Can not find matching events to update.");
             }
 
-            var list = candidatesRes.Data;
-            var preview = new List<CalendarOperationPreview>();
+            var candidates = candidatesRes.Data;
 
-            foreach (var item in list)
+            var candidatesContext = candidates.Select(c => new
             {
-                var selection = new CalendarOperationPreview
-                {
-                    Action = "update",
-                    Title = item.Title,
-                    Start = item.StartTime,
-                    End = item.EndTime,
-                    TargetEventId = item.Id
-                };
-                preview.Add(selection);
-            }
-            return Result<List<CalendarOperationPreview>>.SuccessResult(preview);
+                c.Id,
+                CurrentTitle = c.Title,
+                CurrentStart = c.StartTime.ToString("dd/MM/yyyy HH:mm"),
+                CurrentEnd = c.EndTime.ToString("dd/MM/yyyy HH:mm")
+            }).ToList();
 
+            string candidatesJson = JsonSerializer.Serialize(candidatesContext);
+
+            TimeZoneInfo userTimeZone;
+            try { userTimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time"); }
+            catch { userTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh"); }
+            DateTime userNow = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, userTimeZone);
+
+            string prompt = $@"
+                Context: Today is {userNow:dd/MM/yyyy (dddd)} {userNow:HH:mm}.
+                User Input: ""{modelRespone.InputText}""
+    
+                Candidate Events (JSON):
+                {candidatesJson}
+
+                Task:
+                1. Identify which event(s) the user wants to update from the Candidate list.
+                2. Extract the NEW values (NewTitle, NewStart, NewEnd).
+                3. If user says 'delay 1 hour', calculate NewStart based on CurrentStart.
+                4. If user only changes time, keep NewTitle null. If user only renames, keep dates null.
+
+                Output Format (JSON Array only):
+                [
+                  {{
+                    ""TargetEventId"": ""id_from_candidates"",
+                    ""ExecutionPayload"": {{
+                       ""NewTitle"": ""string or null"",
+                       ""NewStart"": ""dd/MM/yyyy HH:mm or null"",
+                       ""NewEnd"": ""dd/MM/yyyy HH:mm or null""
+                    }}
+                  }}
+                ]
+                ";
+
+            var llmResponse = await _geminiClient.CallGemini(prompt);
+            string jsonRes = CleanJson(llmResponse?.ToString() ?? "");
+
+            try
+            {
+                var llmUpdates = JsonSerializer.Deserialize<List<UpdatePreviewDto>>(jsonRes, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (llmUpdates == null || !llmUpdates.Any())
+                    return Result<List<CalendarOperationPreview>>.FailureResult("AI could not determine update details.");
+
+                var resultPreviews = new List<CalendarOperationPreview>();
+
+                foreach (var update in llmUpdates)
+                {
+                    var originalEvent = candidates.FirstOrDefault(c => c.Id == update.TargetEventId);
+                    if (originalEvent == null) continue;
+
+                    var payload = update.ExecutionPayload;
+
+                    DateTime? newStart = ParseUserDate(payload?.NewStart, userNow);
+                    DateTime? newEnd = ParseUserDate(payload?.NewEnd, userNow);
+
+                    if (newStart.HasValue && !newEnd.HasValue)
+                    {
+                        TimeSpan oldDuration = originalEvent.EndTime - originalEvent.StartTime;
+                        newEnd = newStart.Value.Add(oldDuration);
+                    }
+
+                    var finalPayload = new UpdateEventExecutionPayload
+                    {
+                        EventId = update.TargetEventId,
+                        NewTitle = payload?.NewTitle,
+                        NewStart = newStart,
+                        NewEnd = newEnd
+                    };
+
+                    resultPreviews.Add(new CalendarOperationPreview
+                    {
+                        Action = "update",
+                        TargetEventId = update.TargetEventId,
+                        Title = originalEvent.Title, 
+                        Start = originalEvent.StartTime, 
+                        End = originalEvent.EndTime,
+                        ExecutionPayload = finalPayload 
+                    });
+                }
+
+                if (resultPreviews.Count == 0)
+                    return Result<List<CalendarOperationPreview>>.FailureResult("No valid updates parsed.");
+
+                return Result<List<CalendarOperationPreview>>.SuccessResult(resultPreviews);
+            }
+            catch (Exception ex)
+            {
+                return Result<List<CalendarOperationPreview>>.FailureResult($"Error parsing update intent: {ex.Message}");
+            }
         }
 
         public async Task<Result<List<CalendarOperationPreview>>> BuildDeletePreviewAsync(MberModelRespone modelRespone, Guid userId)
@@ -233,8 +316,11 @@ namespace Application.Service
             return Result<List<CalendarOperationPreview>>.SuccessResult(preview);
         }
 
-        public async Task<Result<UpdateEventRespone>> ExecuteUpdateAsync(UpdateEventExecutionPayload payload, Guid userId)
+        public async Task<Result<UpdateEventRespone>> ExecuteUpdateAsync(List<UpdateEventExecutionPayload> payloads, Guid userId)
         {
+            if (payloads == null || !payloads.Any())
+                return Result<UpdateEventRespone>.FailureResult("No events to update.");
+
             string accessToken = await _oauthTokenService.GetAccessToken(userId);
             if (string.IsNullOrEmpty(accessToken))
                 return Result<UpdateEventRespone>.FailureResult("Access token not found.");
@@ -247,30 +333,66 @@ namespace Application.Service
                     ApplicationName = "CalendarOAuthDemo"
                 });
 
-                // Fetch existing event
-                var getReq = googleService.Events.Get("primary", payload.EventId);
-                var existing = await getReq.ExecuteAsync();
-                if (existing == null)
-                    return Result<UpdateEventRespone>.FailureResult("Event not found.");
+                var updateTasks = payloads.Select(async item =>
+                {
+                    try
+                    {
+                        var getReq = googleService.Events.Get("primary", item.EventId);
+                        var existing = await getReq.ExecuteAsync();
 
-                if (!string.IsNullOrWhiteSpace(payload.NewTitle))
-                    existing.Summary = payload.NewTitle;
-                if (payload.NewStart.HasValue)
-                    existing.Start = new EventDateTime { DateTimeDateTimeOffset = new DateTimeOffset(payload.NewStart.Value.ToUniversalTime()) };
-                if (payload.NewEnd.HasValue)
-                    existing.End = new EventDateTime { DateTimeDateTimeOffset = new DateTimeOffset(payload.NewEnd.Value.ToUniversalTime()) };
+                        if (existing == null) return false;
 
-                var updateReq = googleService.Events.Update(existing, "primary", payload.EventId);
-                // updateReq.IfMatch = existing.ETag;
-                var updated = await updateReq.ExecuteAsync();
-                if (updated != null)
-                    return Result<UpdateEventRespone>.SuccessResult(new UpdateEventRespone { IsUpdated = true });
+                        bool isChanged = false;
 
-                return Result<UpdateEventRespone>.FailureResult("Unable to update event on Google Calendar.");
+                        if (!string.IsNullOrWhiteSpace(item.NewTitle))
+                        {
+                            existing.Summary = item.NewTitle;
+                            isChanged = true;
+                        }
+
+                        if (item.NewStart.HasValue)
+                        {
+                            existing.Start = new EventDateTime { DateTimeDateTimeOffset = new DateTimeOffset(item.NewStart.Value.ToUniversalTime()) };
+                            isChanged = true;
+                        }
+
+                        if (item.NewEnd.HasValue)
+                        {
+                            existing.End = new EventDateTime { DateTimeDateTimeOffset = new DateTimeOffset(item.NewEnd.Value.ToUniversalTime()) };
+                            isChanged = true;
+                        }
+
+                        if (isChanged)
+                        {
+                            var updateReq = googleService.Events.Update(existing, "primary", item.EventId);
+                            await updateReq.ExecuteAsync();
+                        }
+
+                        return true; 
+                    }
+                    catch (Exception)
+                    {
+                        return false;
+                    }
+                });
+                var results = await Task.WhenAll(updateTasks);
+
+                int successCount = results.Count(r => r == true);
+                int totalCount = payloads.Count;
+
+                if (successCount == 0)
+                {
+                    return Result<UpdateEventRespone>.FailureResult("Failed to update any events.");
+                }
+
+                return Result<UpdateEventRespone>.SuccessResult(new UpdateEventRespone
+                {
+                    IsUpdated = true,
+                });
             }
             catch (Exception ex)
             {
-                return Result<UpdateEventRespone>.FailureResult($"Error updating Google Calendar event: {ex.Message}");
+                return Result<UpdateEventRespone>.FailureResult($"System Error: {ex.Message}");
             }
         }
 
@@ -445,35 +567,55 @@ namespace Application.Service
         {
             string accessToken = await _oauthTokenService.GetAccessToken(userId);
             if (string.IsNullOrEmpty(accessToken))
-            {
                 return Result<List<SearchEventRespone>>.FailureResult("Access token not found.");
-            }
+
             TimeZoneInfo userTimeZone;
-            try
-            {
-                userTimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
-            }
-            catch
-            {
-                userTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh");
-            }
+            try { userTimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time"); }
+            catch { userTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh"); }
 
             DateTime userNow = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, userTimeZone);
 
-            string extractionPrompt = $@"
+            string intent = modelRespone.Intent?.ToLower() ?? "search";
+
+            string extractionPrompt;
+
+            if (intent.Contains("update"))
+            {
+                extractionPrompt = $@"
                 Input: ""{modelRespone.InputText}""
-                Context: Today is {userNow:dd/MM/yyyy (dddd)}.
-                Task: Extract search intent into JSON.
+                Context: Today is {userNow:dd/MM/yyyy (dddd) HH:mm}.
+                Task: The user wants to UPDATE/MODIFY an event. Extract the **EXISTING/CURRENT** details to find the event.
+        
+                CRITICAL RULES:
+                1. **IGNORE** the NEW destination time/title. Only extract parameters of the event AS IT EXISTS NOW.
+                2. Example: ""Dời lịch họp lúc 14h sang 16h"" -> Extract StartDateTime = '14h Today'. (Ignore 16h).
+                3. Example: ""Change Friday meeting to Monday"" -> Extract StartDateTime = 'Friday'. (Ignore Monday).
+                4. Example: ""Rename 'Team Sync' to 'Workshop'"" -> Extract Title = 'Team Sync'.
+        
                 Format:
                 {{
-                    ""Title"": string|null (keywords to search),
-                    ""StartDateTime"": string|null (dd/MM/yyyy HH:mm),
-                    ""EndDateTime"": string|null (dd/MM/yyyy HH:mm)
+                    ""Title"": string|null (original keywords),
+                    ""StartDateTime"": string|null (original start),
+                    ""EndDateTime"": string|null (original end)
+                }}
+                Return ONLY JSON.";
+            }
+            else
+            {
+                extractionPrompt = $@"
+                Input: ""{modelRespone.InputText}""
+                Context: Today is {userNow:dd/MM/yyyy (dddd)}.
+                Task: Extract search criteria into JSON.
+                Format:
+                {{
+                    ""Title"": string|null,
+                    ""StartDateTime"": string|null,
+                    ""EndDateTime"": string|null
                 }}
                 Rules:
-                - If user says 'tomorrow', calculate based on Today ({userNow:dd/MM/yyyy}).
-                - If user says 'sáng nay', 'chiều nay', infer specific hours if possible.
-                - Return ONLY JSON string, no markdown.";
+                - If 'tomorrow', calculate based on Today ({userNow:dd/MM/yyyy}).
+                - Return ONLY JSON.";
+                    }
 
             var llmResponse = await _geminiClient.CallGemini(extractionPrompt);
             var jsonString = llmResponse?.ToString()?.Replace("```json", "").Replace("```", "").Trim();
@@ -488,7 +630,7 @@ namespace Application.Service
                 calendarIntent = new SearchEventRequest { Title = modelRespone.InputText };
             }
 
-            if (calendarIntent == null) return Result<List<SearchEventRespone>>.FailureResult("Unable to understand search intent.");
+            if (calendarIntent == null) return Result<List<SearchEventRespone>>.FailureResult("Unable to understand search criteria.");
 
             DateTime startUserTime;
             DateTime endUserTime;
@@ -570,36 +712,40 @@ namespace Application.Service
                 return Result<List<SearchEventRespone>>.FailureResult($"Google API Error: {ex.Message}");
             }
 
-            // Filtering logic
             var filteredEvents = allEvents;
             string intentTitle = calendarIntent.Title?.Trim();
 
             if (!string.IsNullOrEmpty(intentTitle))
             {
-                var candidates = allEvents.Select(e => new { e.Id, e.Title, Time = e.StartTime.ToString("dd/MM HH:mm") }).ToList();
-                string candidatesJson = JsonSerializer.Serialize(candidates);
-
-                string filterPrompt = $@"
-                Find events matching intent: ""{intentTitle}""
-                Candidates: {candidatesJson}
-                Return JSON array of IDs only. Example: [""id1"", ""id2""]. If none, return [].";
-
-                try
+                if (allEvents.Count > 0)
                 {
-                    var filterRes = await _geminiClient.CallGemini(filterPrompt);
-                    var filterIds = JsonSerializer.Deserialize<List<string>>(CleanJson(filterRes.ToString()));
-                    if (filterIds != null && filterIds.Any())
+                    var candidates = allEvents.Select(e => new { e.Id, e.Title, Time = e.StartTime.ToString("dd/MM HH:mm") }).ToList();
+                    string candidatesJson = JsonSerializer.Serialize(candidates);
+
+                    string filterPrompt = $@"
+                    Task: Identify event IDs that match the description: ""{intentTitle}""
+                    Candidates: {candidatesJson}
+                    Return JSON array of IDs: [""id1"", ""id2""]. If none, return [].";
+
+                    try
                     {
-                        filteredEvents = allEvents.Where(e => filterIds.Contains(e.Id)).ToList();
+                        var filterRes = await _geminiClient.CallGemini(filterPrompt);
+                        var filterIds = JsonSerializer.Deserialize<List<string>>(CleanJson(filterRes.ToString()));
+
+                        if (filterIds != null && filterIds.Any())
+                        {
+                            filteredEvents = allEvents.Where(e => filterIds.Contains(e.Id)).ToList();
+                        }
+                        else
+                        {
+                            var simpleFilter = allEvents.Where(e => e.Title.Contains(intentTitle, StringComparison.OrdinalIgnoreCase)).ToList();
+                            if (simpleFilter.Any()) filteredEvents = simpleFilter;
+                        }
                     }
-                    else
-                    {
-                        var simpleFilter = allEvents.Where(e => e.Title.Contains(intentTitle, StringComparison.OrdinalIgnoreCase)).ToList();
-                        filteredEvents = simpleFilter;
-                    }
+                    catch { /* Ignore LLM filter error */ }
                 }
-                catch { }
             }
+
             return Result<List<SearchEventRespone>>.SuccessResult(filteredEvents);
         }
 
@@ -615,6 +761,20 @@ namespace Application.Service
             }
             return null;
         }
+
+        private class UpdatePreviewDto
+        {
+            public string TargetEventId { get; set; } = string.Empty;
+            public UpdatePayloadDto ExecutionPayload { get; set; } = new();
+        }
+
+        private class UpdatePayloadDto
+        {
+            public string? NewTitle { get; set; }
+            public string? NewStart { get; set; }
+            public string? NewEnd { get; set; }
+        }
+
 
         private string CleanJson(string input)
         {

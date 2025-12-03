@@ -79,7 +79,7 @@ namespace Worker.Consumers
                                 if (!Guid.TryParse(evt.UserId, out var userId))
                                     throw new InvalidOperationException("Invalid userId in decision event");
 
-                                var res = await _calendarService.ExecuteUpdateAsync(payload[0], userId);
+                                var res = await _calendarService.ExecuteUpdateAsync(payload, userId);
                                 processingResult = res;
                                 break;
                             }

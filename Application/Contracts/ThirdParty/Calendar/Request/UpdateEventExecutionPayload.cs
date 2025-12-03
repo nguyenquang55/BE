@@ -8,6 +8,5 @@ namespace Application.Contracts.ThirdParty.Calendar.Request
         public string? NewTitle { get; set; }
         public DateTime? NewStart { get; set; }
         public DateTime? NewEnd { get; set; }
-        public string? ETag { get; set; }
     }
 }
