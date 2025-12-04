@@ -583,20 +583,26 @@ namespace Application.Service
             {
                 extractionPrompt = $@"
                 Input: ""{modelRespone.InputText}""
-                Context: Today is {userNow:dd/MM/yyyy (dddd) HH:mm}.
-                Task: The user wants to UPDATE/MODIFY an event. Extract the **EXISTING/CURRENT** details to find the event.
-        
-                CRITICAL RULES:
-                1. **IGNORE** the NEW destination time/title. Only extract parameters of the event AS IT EXISTS NOW.
-                2. Example: ""Dời lịch họp lúc 14h sang 16h"" -> Extract StartDateTime = '14h Today'. (Ignore 16h).
-                3. Example: ""Change Friday meeting to Monday"" -> Extract StartDateTime = 'Friday'. (Ignore Monday).
-                4. Example: ""Rename 'Team Sync' to 'Workshop'"" -> Extract Title = 'Team Sync'.
-        
+                Context: Today is {userNow:dd/MM/yyyy (dddd)}.
+                Task: Extract **EXISTING** event details for search.
+
+                CRITICAL RULES FOR DATES:
+                1. **ABSOLUTE DATES ONLY**: You MUST calculate ""tomorrow"", ""next week"", ""this afternoon"" into specific dates based on Context. NEVER return strings like ""tomorrow"".
+                2. **FORMAT**: All dates MUST be ""dd/MM/yyyy HH:mm"".
+                3. **MISSING DAY (TIME-ONLY resolution) - QUY TẮC MỚI**: Nếu chỉ một thời gian được chỉ định mà không có ngày (ví dụ: ""5pm""), ngày MẶC ĐỊNH PHẢI là **HÔM NAY** (sử dụng ngày trong Context), ngay cả khi thời gian đó đã trôi qua.
+
+                CRITICAL RULES FOR UPDATE INTENT:
+                4. **IGNORE THE NEW TIME**: Extract **CHỈ** các chi tiết của sự kiện **HIỆN TẠI/CŨ**. ""8pm"" là thời gian MỚI, phải bỏ qua. Thời gian HIỆN TẠI là ""5pm"".
+
+                CRITICAL RULES FOR SEARCH RANGE:
+                5. **WHOLE DAY SEARCH**: If user mentions a specific day but NO specific time (e.g., ""meeting tomorrow""), you must define the search range for the WHOLE day: StartDateTime = ""dd/MM/yyyy 00:00"", EndDateTime = ""dd/MM/yyyy 23:59"".
+                6. **SPECIFIC START TIME TO END OF DAY (QUY TẮC MỚI)**: Nếu người dùng cung cấp một thời điểm **BẮT ĐẦU HIỆN TẠI** (như 5pm) nhưng không có thời điểm kết thúc cho sự kiện hiện tại, phạm vi tìm kiếm **PHẢI** được đặt từ thời điểm bắt đầu đó cho đến cuối ngày (23:59).
+
                 Format:
                 {{
                     ""Title"": string|null (original keywords),
-                    ""StartDateTime"": string|null (original start),
-                    ""EndDateTime"": string|null (original end)
+                    ""StartDateTime"": string (dd/MM/yyyy HH:mm),
+                    ""EndDateTime"": string (dd/MM/yyyy HH:mm)
                 }}
                 Return ONLY JSON.";
             }
@@ -605,17 +611,33 @@ namespace Application.Service
                 extractionPrompt = $@"
                 Input: ""{modelRespone.InputText}""
                 Context: Today is {userNow:dd/MM/yyyy (dddd)}.
-                Task: Extract search criteria into JSON.
+                Task: Extract search criteria.
+
+                CRITICAL RULES FOR DATES:
+                1. **ABSOLUTE DATES ONLY**: You MUST calculate relative dates (""""tomorrow"""", """"next Monday"""") into specific dates based on Context. NEVER return strings like """"tomorrow"""".
+                2. **FORMAT**: All dates MUST be """"dd/MM/yyyy HH:mm"""".
+
+                CRITICAL RULES FOR TIME & RANGES:
+                1. **SPECIFIC TIME POINT (Start/End)**: If the user specifies a specific time (e.g., """"05:00"""") **VÀ** một buổi trong ngày (""""sáng/chiều/tối""""):
+                    - Set **StartDateTime** là thời điểm cụ thể được nhắc đến.
+                    - Set **EndDateTime** là thời điểm kết thúc của buổi trong ngày đó.
+                    - Ví dụ: """"lịch chạy bộ lúc 05:00 sáng mai"""" -> Start=""""... 05:00"""", End=""""... 11:59"""" (Kết thúc buổi sáng).
+                2. **SPECIFIC TIME RANGE**: If user specifies a clear time range (e.g., """"from 2pm to 4pm""""), set **StartDateTime** và **EndDateTime** tới các mốc chính xác.
+                3. **TIME-OF-DAY ONLY / JUST DAY / SPECIFIC TIME ONLY (NO RANGE)**: Nếu người dùng chỉ đề cập đến buổi trong ngày, chỉ ngày, hoặc chỉ một điểm thời gian đơn lẻ (không có buổi đi kèm hoặc không có phạm vi), phải tìm kiếm toàn bộ phạm vi.
+                    - **""sáng"" (morning):** Start 00:00, End 11:59.
+                    - **""chiều"" (afternoon):** Start 12:00, End 17:59.
+                    - **""tối"" (evening):** Start 18:00, End 23:59.
+                    - **Just Day (no time/no time-of-day):** Start 00:00, End 23:59.
+                    - **Specific Time Only (e.g. """"15:00"""" without 'sáng/chiều/tối'):** Start 00:00, End 23:59.
+
                 Format:
-                {{
-                    ""Title"": string|null,
-                    ""StartDateTime"": string|null,
-                    ""EndDateTime"": string|null
-                }}
-                Rules:
-                - If 'tomorrow', calculate based on Today ({userNow:dd/MM/yyyy}).
-                - Return ONLY JSON.";
-                    }
+                {{{{
+                    """"Title"""": string|null,
+                    """"StartDateTime"""": string|null (dd/MM/yyyy HH:mm),
+                    """"EndDateTime"""": string|null (dd/MM/yyyy HH:mm)
+                }}}}
+                Return ONLY JSON.";
+            }
 
             var llmResponse = await _geminiClient.CallGemini(extractionPrompt);
             var jsonString = llmResponse?.ToString()?.Replace("```json", "").Replace("```", "").Trim();

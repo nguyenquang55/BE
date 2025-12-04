@@ -8,16 +8,14 @@ namespace Domain.Enums
 {
     public enum Intent
     {
-        check_inbox = 0,
+        access_email = 0,
         create_event = 1,
         delete_email = 2,
         delete_event = 3,
         forward_email = 4,
-        read_email = 5,
-        reply_email = 6,
-        search_email = 7,
-        search_event = 8,
-        send_email = 9,
-        update_event = 10
+        reply_email = 5,
+        search_event = 6,
+        send_email = 7,
+        update_event = 8
     }
 }
