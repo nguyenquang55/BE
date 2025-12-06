@@ -119,18 +119,21 @@ namespace Application.Service
             bool isVi = IsVietnamese(modelRespone.InputText);
             string composePrompt = isVi
                 ? $@"Người dùng hỏi: ""{modelRespone.InputText}""
-                 Danh sách sự kiện tìm được:
-                 {eventsTextList}
-                 
-                 Hãy trả lời tự nhiên bằng tiếng Việt.
-                 - Nếu có sự kiện, liệt kê ngắn gọn (Giờ + Tên).
-                 - Nếu danh sách rỗng, báo không tìm thấy thông tin sự kiện thật là ngắn gọn cho tôi.
-                 - Không bịa đặt thông tin."
+                      Danh sách sự kiện tìm được:
+                      {eventsTextList}
+      
+                      Hãy trả lời tự nhiên bằng tiếng Việt.
+                      - Nếu có sự kiện, liệt kê ngắn gọn (Giờ + Tên).
+                      - Nếu danh sách rỗng, báo không tìm thấy thông tin sự kiện thật là ngắn gọn cho tôi.
+                      - Không bịa đặt thông tin."
                 : $@"User asked: ""{modelRespone.InputText}""
-                 Found events:
-                 {eventsTextList}
-                 
-                 Answer naturally in English. Summarize the events.";
+                      Found events:
+                      {eventsTextList}
+      
+                      Reply naturally in English.
+                      - If events exist, concisely list them (Time + Title).
+                      - If the list is empty, state clearly and concisely that no events were found.
+                      - Do not fabricate information.";
 
             var finalAnswer = await _geminiClient.CallGemini(composePrompt);
 
@@ -268,14 +271,20 @@ namespace Application.Service
                         NewEnd = newEnd
                     };
 
+                    // Build warnings for conflicts based on new time (if provided), else keep original time
+                    var checkStart = finalPayload.NewStart ?? originalEvent.StartTime;
+                    var checkEnd = finalPayload.NewEnd ?? originalEvent.EndTime;
+                    var warnings = await BuildConflictWarnings(userId, checkStart, checkEnd, update.TargetEventId,modelRespone.InputText);
+
                     resultPreviews.Add(new CalendarOperationPreview
                     {
                         Action = "update",
                         TargetEventId = update.TargetEventId,
-                        Title = originalEvent.Title, 
-                        Start = originalEvent.StartTime, 
+                        Title = originalEvent.Title,
+                        Start = originalEvent.StartTime,
                         End = originalEvent.EndTime,
-                        ExecutionPayload = finalPayload 
+                        ExecutionPayload = finalPayload,
+                        Warnings = warnings
                     });
                 }
 
@@ -342,6 +351,18 @@ namespace Application.Service
 
                         if (existing == null) return false;
 
+                        // Capture old start/end before changes (UTC offsets)
+                        DateTimeOffset? oldStartOffset = existing.Start?.DateTimeDateTimeOffset;
+                        if (!oldStartOffset.HasValue && existing.Start != null && !string.IsNullOrEmpty(existing.Start.Date))
+                        {
+                            oldStartOffset = DateTimeOffset.Parse(existing.Start.Date);
+                        }
+                        DateTimeOffset? oldEndOffset = existing.End?.DateTimeDateTimeOffset;
+                        if (!oldEndOffset.HasValue && existing.End != null && !string.IsNullOrEmpty(existing.End.Date))
+                        {
+                            oldEndOffset = DateTimeOffset.Parse(existing.End.Date);
+                        }
+
                         bool isChanged = false;
 
                         if (!string.IsNullOrWhiteSpace(item.NewTitle))
@@ -366,6 +387,44 @@ namespace Application.Service
                         {
                             var updateReq = googleService.Events.Update(existing, "primary", item.EventId);
                             await updateReq.ExecuteAsync();
+                        }
+
+                        // Update Redis cache for 7-day tracking
+                        TimeZoneInfo userTimeZone;
+                        try { userTimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time"); }
+                        catch { userTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh"); }
+
+                        // Determine new start/end from existing (post-update values)
+                        DateTimeOffset? newStartOffset = existing.Start?.DateTimeDateTimeOffset;
+                        if (!newStartOffset.HasValue && existing.Start != null && !string.IsNullOrEmpty(existing.Start.Date))
+                        {
+                            newStartOffset = DateTimeOffset.Parse(existing.Start.Date);
+                        }
+                        DateTimeOffset? newEndOffset = existing.End?.DateTimeDateTimeOffset;
+                        if (!newEndOffset.HasValue && existing.End != null && !string.IsNullOrEmpty(existing.End.Date))
+                        {
+                            newEndOffset = DateTimeOffset.Parse(existing.End.Date);
+                        }
+
+                        if (newStartOffset.HasValue && newEndOffset.HasValue)
+                        {
+                            var oldStartLocal = oldStartOffset.HasValue ? TimeZoneInfo.ConvertTime(oldStartOffset.Value, userTimeZone).DateTime : DateTime.MinValue;
+                            var newStartLocal = TimeZoneInfo.ConvertTime(newStartOffset.Value, userTimeZone).DateTime;
+                            var newEndLocal = TimeZoneInfo.ConvertTime(newEndOffset.Value, userTimeZone).DateTime;
+
+                            if (oldStartLocal != DateTime.MinValue && oldStartLocal.Date != newStartLocal.Date)
+                            {
+                                await RemoveEventFromCache(userId, item.EventId, oldStartLocal);
+                            }
+
+                            var ev = new SearchEventRespone
+                            {
+                                Id = item.EventId,
+                                Title = existing.Summary ?? "(No Title)",
+                                StartTime = newStartLocal,
+                                EndTime = newEndLocal
+                            };
+                            await UpsertEventInCache(userId, ev);
                         }
 
                         return true; 
@@ -415,8 +474,34 @@ namespace Application.Service
                 {
                     try
                     {
+                        Event? existing = null;
+                        try
+                        {
+                            var getReq = googleService.Events.Get("primary", payloadid.EventId);
+                            existing = await getReq.ExecuteAsync();
+                        }
+                        catch { }
+
                         var delReq = googleService.Events.Delete("primary", payloadid.EventId);
                         await delReq.ExecuteAsync();
+
+                        if (existing != null)
+                        {
+                            TimeZoneInfo userTimeZone;
+                            try { userTimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time"); }
+                            catch { userTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh"); }
+
+                            DateTimeOffset? oldStartOffset = existing.Start?.DateTimeDateTimeOffset;
+                            if (!oldStartOffset.HasValue && existing.Start != null && !string.IsNullOrEmpty(existing.Start.Date))
+                            {
+                                oldStartOffset = DateTimeOffset.Parse(existing.Start.Date);
+                            }
+                            if (oldStartOffset.HasValue)
+                            {
+                                var oldStartLocal = TimeZoneInfo.ConvertTime(oldStartOffset.Value, userTimeZone).DateTime;
+                                await RemoveEventFromCache(userId, payloadid.EventId, oldStartLocal);
+                            }
+                        }
                     }
                     catch
                     {
@@ -508,6 +593,14 @@ namespace Application.Service
             }
             catch { }
 
+            // Add conflict warnings if we have full time range
+            if (hasStart && hasEnd)
+            {
+                var conflictWarnings = await BuildConflictWarnings(userId, startDt, endDt, null,modelRespone.InputText);
+                if (conflictWarnings.Count > 0)
+                    warnings.AddRange(conflictWarnings);
+            }
+
             var preview = new CalendarOperationPreview
             {
                 Action = "create",
@@ -551,7 +644,25 @@ namespace Application.Service
                 var insertRequest = googleService.Events.Insert(newEvent, "primary");
                 var createdEvent = await insertRequest.ExecuteAsync();
                 if (createdEvent != null && !string.IsNullOrEmpty(createdEvent.Id))
+                {
+                    TimeZoneInfo userTimeZone;
+                    try { userTimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time"); }
+                    catch { userTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh"); }
+
+                    var startLocal = TimeZoneInfo.ConvertTime(new DateTimeOffset(startDateTime), userTimeZone).DateTime;
+                    var endLocal = TimeZoneInfo.ConvertTime(new DateTimeOffset(endDateTime), userTimeZone).DateTime;
+
+                    var ev = new SearchEventRespone
+                    {
+                        Id = createdEvent.Id,
+                        Title = payload.Title,
+                        StartTime = startLocal,
+                        EndTime = endLocal
+                    };
+                    await UpsertEventInCache(userId, ev);
+
                     return Result<CreateEventRespone>.SuccessResult(new CreateEventRespone { IsCreated = true });
+                }
 
                 return Result<CreateEventRespone>.FailureResult("Unable to create event on Google Calendar.");
             }
@@ -563,6 +674,160 @@ namespace Application.Service
         #endregion
 
         #region Helpers
+        private static string DayKey(Guid userId, DateTime day)
+        {
+            var d = day.Date;
+            var yyyyMMdd = d.ToString("yyyyMMdd");
+            return $"user:{userId}:events:{yyyyMMdd}";
+        }
+
+        private async Task<List<SearchEventRespone>?> GetDayEventsFromCache(Guid userId, DateTime day)
+        {
+            var key = DayKey(userId, day);
+            return await _redisCacheService.GetAsync<List<SearchEventRespone>>(key);
+        }
+
+        private async Task SetDayEventsCache(Guid userId, DateTime day, List<SearchEventRespone> events)
+        {
+            var key = DayKey(userId, day);
+            var ttl = TimeSpan.FromDays(8); 
+            await _redisCacheService.SetAsync(key, events, ttl);
+        }
+
+        private async Task<List<SearchEventRespone>?> TryGetEventsFromCache(Guid userId, DateTime startUserTime, DateTime endUserTime)
+        {
+            var today = DateTime.Now.Date;
+            var maxDay = today.AddDays(7);
+            if (startUserTime.Date < today || endUserTime.Date > maxDay)
+                return null;
+
+            var list = new List<SearchEventRespone>();
+            for (var d = startUserTime.Date; d <= endUserTime.Date; d = d.AddDays(1))
+            {
+                var dayEvents = await GetDayEventsFromCache(userId, d);
+                if (dayEvents == null)
+                    return null;
+                list.AddRange(dayEvents);
+            }
+            list = list.Where(e => e.StartTime < endUserTime && e.EndTime > startUserTime).ToList();
+            return list;
+        }
+
+        private async Task SaveEventsToCache(Guid userId, IEnumerable<SearchEventRespone> events, DateTime userNow)
+        {
+            var startWindow = userNow.Date;
+            var endWindow = startWindow.AddDays(7);
+            var groups = events
+                .Where(e => e.StartTime.Date >= startWindow && e.StartTime.Date <= endWindow)
+                .GroupBy(e => e.StartTime.Date)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            foreach (var kv in groups)
+            {
+                await SetDayEventsCache(userId, kv.Key, kv.Value);
+            }
+        }
+
+        private async Task UpsertEventInCache(Guid userId, SearchEventRespone ev)
+        {
+            var day = ev.StartTime.Date;
+            var list = await GetDayEventsFromCache(userId, day) ?? new List<SearchEventRespone>();
+            list = list.Where(x => x.Id != ev.Id).ToList();
+            list.Add(ev);
+            await SetDayEventsCache(userId, day, list);
+        }
+
+        private async Task RemoveEventFromCache(Guid userId, string eventId, DateTime oldStart)
+        {
+            var day = oldStart.Date;
+            var list = await GetDayEventsFromCache(userId, day);
+            if (list == null) return;
+            list = list.Where(x => x.Id != eventId).ToList();
+            await SetDayEventsCache(userId, day, list);
+        }
+
+        private static bool Overlaps(DateTime aStart, DateTime aEnd, DateTime bStart, DateTime bEnd)
+            => aStart < bEnd && aEnd > bStart;
+
+        private async Task<List<string>> BuildConflictWarnings(Guid userId, DateTime newStart, DateTime newEnd, string? excludeEventId, string modelMessage)
+        {
+            var warnings = new List<string>();
+            var message = modelMessage;
+            bool isVi = IsVietnamese(message);
+
+            var conflicts = new List<SearchEventRespone>();
+            for (var d = newStart.Date; d <= newEnd.Date; d = d.AddDays(1))
+            {
+                var dayEvents = await GetDayEventsFromCache(userId, d);
+                if (dayEvents == null) continue;
+                foreach (var ev in dayEvents)
+                {
+                    if (!string.IsNullOrEmpty(excludeEventId) && ev.Id == excludeEventId) continue;
+                    if (Overlaps(newStart, newEnd, ev.StartTime, ev.EndTime)) conflicts.Add(ev);
+                }
+            }
+
+            if (conflicts.Count == 0)
+                return warnings;
+            try
+            {
+                var candidates = conflicts.Select(c => new
+                {
+                    c.Id,
+                    c.Title,
+                    Start = c.StartTime.ToString("dd/MM/yyyy HH:mm"),
+                    End = c.EndTime.ToString("dd/MM/yyyy HH:mm")
+                }).ToList();
+                var candidatesJson = JsonSerializer.Serialize(candidates);
+
+                var prompt = isVi ? $@"
+                Nhiệm vụ: Viết cảnh báo xung đột lịch bằng tiếng Việt thật ngắn gọn, dễ hiểu.
+                Thời gian đề xuất: {newStart:dd/MM/yyyy HH:mm} - {newEnd:dd/MM/yyyy HH:mm}
+                Các sự kiện đang trùng (JSON):
+                {candidatesJson}
+
+                Yêu cầu:
+                - Tóm tắt số lượng và liệt kê 2-3 sự kiện trùng (tiêu đề + khung giờ).
+                - Đưa ra 2-3 gợi ý thời điểm thay thế hợp lý (có thể dịch chuyển 15-30 phút, hoặc cùng khung giờ ngày hôm sau).
+                - Trả về dưới dạng các dòng văn bản, tối đa 5-6 dòng, không giải thích dài dòng, không trả về JSON.
+                " : $@"
+                Task: Write a concise, easy-to-understand calendar conflict warning in English.
+                Proposed time: {newStart:dd/MM/yyyy HH:mm} - {newEnd:dd/MM/yyyy HH:mm}
+                Conflicting events (JSON):
+                {candidatesJson}
+
+                Requirements:
+                - Summarize the count and list 2-3 overlapping events (title + time range).
+                - Provide 2-3 reasonable alternative time suggestions (e.g., shift 15-30 mins, or same time next day).
+                - Return as plain text lines, max 5-6 lines, no verbose explanation, do not return JSON.
+                ";
+
+                var llm = await _geminiClient.CallGemini(prompt);
+                var text = llm?.ToString()?.Trim() ?? string.Empty;
+                if (!string.IsNullOrEmpty(text))
+                {
+                    foreach (var line in text.Split('\n'))
+                    {
+                        var clean = line.Trim();
+                        if (string.IsNullOrEmpty(clean)) continue;
+                        warnings.Add(clean);
+                        if (warnings.Count >= 6) break;
+                    }
+                }
+                else
+                {
+                    warnings.Add($"Phát hiện {conflicts.Count} xung đột thời gian với sự kiện hiện có.");
+                }
+            }
+            catch
+            {
+                warnings.Add($"Phát hiện {conflicts.Count} xung đột thời gian với sự kiện hiện có.");
+                foreach (var c in conflicts.Take(3))
+                    warnings.Add($"- '{c.Title}' ({c.StartTime:dd/MM HH:mm} - {c.EndTime:dd/MM HH:mm})");
+            }
+
+            return warnings;
+        }
         private async Task<Result<List<SearchEventRespone>>> SearchEventsHelper(MberModelRespone modelRespone, Guid userId)
         {
             string accessToken = await _oauthTokenService.GetAccessToken(userId);
@@ -681,57 +946,68 @@ namespace Application.Service
             var startUtc = TimeZoneInfo.ConvertTimeToUtc(startUserTime, userTimeZone);
             var endUtc = TimeZoneInfo.ConvertTimeToUtc(endUserTime, userTimeZone);
 
-            var googleService = new Google.Apis.Calendar.v3.CalendarService(new BaseClientService.Initializer()
+            var cached = await TryGetEventsFromCache(userId, startUserTime, endUserTime);
+            List<SearchEventRespone> allEvents;
+            if (cached != null)
             {
-                HttpClientInitializer = Google.Apis.Auth.OAuth2.GoogleCredential.FromAccessToken(accessToken),
-                ApplicationName = "CalendarApp"
-            });
-
-            var allEvents = new List<SearchEventRespone>();
-            string? pageToken = null;
-
-            try
-            {
-                do
-                {
-                    var request = googleService.Events.List("primary");
-                    request.ShowDeleted = false;
-                    request.SingleEvents = true;
-                    request.MaxResults = 50;
-                    request.OrderBy = EventsResource.ListRequest.OrderByEnum.StartTime;
-                    request.TimeMinDateTimeOffset = new DateTimeOffset(startUtc);
-                    request.TimeMaxDateTimeOffset = new DateTimeOffset(endUtc);
-                    request.Fields = "items(id,summary,start,end),nextPageToken";
-                    request.PageToken = pageToken;
-
-                    var events = await request.ExecuteAsync();
-
-                    if (events.Items != null)
-                    {
-                        foreach (var item in events.Items)
-                        {
-                            var itemStartVal = item.Start.DateTimeDateTimeOffset ?? DateTimeOffset.Parse(item.Start.Date);
-                            var itemEndVal = item.End.DateTimeDateTimeOffset ?? DateTimeOffset.Parse(item.End.Date);
-
-                            var itemStartUser = TimeZoneInfo.ConvertTime(itemStartVal, userTimeZone).DateTime;
-                            var itemEndUser = TimeZoneInfo.ConvertTime(itemEndVal, userTimeZone).DateTime;
-
-                            allEvents.Add(new SearchEventRespone
-                            {
-                                Id = item.Id,
-                                Title = item.Summary ?? "(No Title)",
-                                StartTime = itemStartUser,
-                                EndTime = itemEndUser
-                            });
-                        }
-                    }
-                    pageToken = events.NextPageToken;
-
-                } while (!string.IsNullOrEmpty(pageToken));
+                allEvents = cached;
             }
-            catch (Exception ex)
+            else
             {
-                return Result<List<SearchEventRespone>>.FailureResult($"Google API Error: {ex.Message}");
+                var googleService = new Google.Apis.Calendar.v3.CalendarService(new BaseClientService.Initializer()
+                {
+                    HttpClientInitializer = Google.Apis.Auth.OAuth2.GoogleCredential.FromAccessToken(accessToken),
+                    ApplicationName = "CalendarApp"
+                });
+
+                allEvents = new List<SearchEventRespone>();
+                string? pageToken = null;
+
+                try
+                {
+                    do
+                    {
+                        var request = googleService.Events.List("primary");
+                        request.ShowDeleted = false;
+                        request.SingleEvents = true;
+                        request.MaxResults = 50;
+                        request.OrderBy = EventsResource.ListRequest.OrderByEnum.StartTime;
+                        request.TimeMinDateTimeOffset = new DateTimeOffset(startUtc);
+                        request.TimeMaxDateTimeOffset = new DateTimeOffset(endUtc);
+                        request.Fields = "items(id,summary,start,end),nextPageToken";
+                        request.PageToken = pageToken;
+
+                        var events = await request.ExecuteAsync();
+
+                        if (events.Items != null)
+                        {
+                            foreach (var item in events.Items)
+                            {
+                                var itemStartVal = item.Start.DateTimeDateTimeOffset ?? DateTimeOffset.Parse(item.Start.Date);
+                                var itemEndVal = item.End.DateTimeDateTimeOffset ?? DateTimeOffset.Parse(item.End.Date);
+
+                                var itemStartUser = TimeZoneInfo.ConvertTime(itemStartVal, userTimeZone).DateTime;
+                                var itemEndUser = TimeZoneInfo.ConvertTime(itemEndVal, userTimeZone).DateTime;
+
+                                allEvents.Add(new SearchEventRespone
+                                {
+                                    Id = item.Id,
+                                    Title = item.Summary ?? "(No Title)",
+                                    StartTime = itemStartUser,
+                                    EndTime = itemEndUser
+                                });
+                            }
+                        }
+                        pageToken = events.NextPageToken;
+
+                    } while (!string.IsNullOrEmpty(pageToken));
+                }
+                catch (Exception ex)
+                {
+                    return Result<List<SearchEventRespone>>.FailureResult($"Google API Error: {ex.Message}");
+                }
+
+                await SaveEventsToCache(userId, allEvents, userNow);
             }
 
             var filteredEvents = allEvents;

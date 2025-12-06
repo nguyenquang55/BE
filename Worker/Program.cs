@@ -29,7 +29,7 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp => ConnectionMultiplexe
 builder.Services.AddSingleton<IRedisCacheService, RedisCacheService>();
 builder.Services.AddTransient<IOAuthTokenService,OAuthTokenService>();
 builder.Services.AddTransient<ILLMService, LLMService>();
-builder.Services.AddTransient<IEmailService, EmailService>();
+// Email features disabled
 builder.Services.AddHttpClient<IGeminiClient, GeminiClient>();
 builder.Services.AddHttpClient<ICalendarService, CalendarService>();
 builder.Services.AddTransient<ICalendarService, CalendarService>();
