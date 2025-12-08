@@ -40,7 +40,7 @@ namespace Worker.Model
             _logger = logger;
             _tokenizer = tokenizer;
 
-            var onnxPath = "D:\\model\\model.onnx";
+            var onnxPath = "D:\\TTNVM\\model.onnx";
             if (!Path.IsPathRooted(onnxPath)) onnxPath = Path.GetFullPath(onnxPath);
             if (!File.Exists(onnxPath)) throw new FileNotFoundException($"ONNX model not found at '{onnxPath}'");
 
@@ -53,7 +53,7 @@ namespace Worker.Model
             _session = new InferenceSession(onnxPath, new SessionOptions());
             _logger.LogInformation("ONNX model loaded: {Path}. MaxSeqLen={Max}", onnxPath, _maxSeqLen);
 
-            var vocabPath = @"C:\Users\Toàn\Documents\GitHub\Calendar Bot Backend Server\Application\Model\vocab.txt";
+            var vocabPath = @"D:\TTNVM\Project\BE\Application\Model\vocab.txt";
             if (!Path.IsPathRooted(vocabPath)) vocabPath = Path.GetFullPath(vocabPath);
             if (!File.Exists(vocabPath)) throw new FileNotFoundException($"Vocab file not found at '{vocabPath}'");
 

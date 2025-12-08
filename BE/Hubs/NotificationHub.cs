@@ -7,6 +7,7 @@ using Shared.Common;
 using MassTransit;
 using Shared.Contracts.Messaging;
 using Org.BouncyCastle.Asn1.Cms;
+using Application.Abstractions.Infrastructure;
 
 namespace BE.Hubs
 {
@@ -14,17 +15,25 @@ namespace BE.Hubs
     {
         private readonly IMessageEnqueueService _enqueueService;
         private readonly INotificationHubContext _notificationHubContext;
+        private readonly IRedisCacheService _redisCacheService;
         private readonly IRoutingStore _routingStore;
+
         private readonly IPublishEndpoint _publisher;
-        public NotificationHub(IMessageEnqueueService enqueueService, INotificationHubContext notificationHubContext, IRoutingStore routingStore, IPublishEndpoint publisher)
+        public NotificationHub(IMessageEnqueueService enqueueService, INotificationHubContext notificationHubContext, IRoutingStore routingStore, IPublishEndpoint publisher, IRedisCacheService redisCacheService)
         {
             _enqueueService = enqueueService;
+            _redisCacheService = redisCacheService;
             _notificationHubContext = notificationHubContext;
             _routingStore = routingStore;
             _publisher = publisher;
         }
         public override async Task OnConnectedAsync()
         {
+            var userId = Context.UserIdentifier;
+            var connectionId = Context.ConnectionId;
+            var query = Context.GetHttpContext()?.Request.Query;
+            string token = query?["sessionToken"];
+            var Userid = _redisCacheService.GetAsync<string>($"UserID:{token}").Result;
 
         }
         public override async Task OnDisconnectedAsync(System.Exception? exception)
@@ -52,7 +61,7 @@ namespace BE.Hubs
             });
 
             if (!string.IsNullOrWhiteSpace(Context.UserIdentifier))
-                await _notificationHubContext.SendToUserAsync(Context.UserIdentifier!, ackJson);
+                await _notificationHubContext.SendToUserAsync(Context.UserIdentifier, ackJson);
             else
                 await _notificationHubContext.SendToClientAsync(Context.ConnectionId, ackJson);
         }

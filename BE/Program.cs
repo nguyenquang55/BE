@@ -25,6 +25,7 @@ builder.Services.AddSingleton<IRedisHealthCheckService, RedisHealthCheckService>
 
 // đăng ký hosted service tường minh
 builder.Services.AddHostedService<Infrastructure.BackgroundServices.RedisHealthCheckBgrService>();
+builder.Services.AddHostedService<Infrastructure.BackgroundServices.CallendarEvntNotificationBgrService>();
 
 
 builder.Services.AddControllers();
