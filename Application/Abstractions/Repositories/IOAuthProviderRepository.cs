@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Application.Abstractions.Repositories
@@ -13,5 +14,8 @@ namespace Application.Abstractions.Repositories
         Task<bool> IsLinkedForUserAsync(Guid userId, string provider, string? providerEmail, string? providerUserId, CancellationToken ct = default);
         Task<bool> IsEmailLinkedByOtherAsync(Guid currentUserId, string provider, string providerEmail, CancellationToken ct = default);
         Task<bool> HasAnyProviderAsync(Guid userId, string provider, CancellationToken ct = default);
+        Task DisableOAuthAsync(Guid userId, string provider, CancellationToken ct = default);
+        Task<OAuthProvider?> GetByProviderUserIdAsync(Guid userId, string provider, string providerUserId, CancellationToken ct = default);
+        Task SetPrimaryAsync(Guid userId, string provider, Guid providerId, CancellationToken ct = default);
     }
 }

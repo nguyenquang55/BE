@@ -13,6 +13,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Web;
 
@@ -114,6 +115,11 @@ namespace Application.Service
             if (string.IsNullOrEmpty(userId))
                 return Result<string>.FailureResult("Invalid session/state or user not found", string.Empty, System.Net.HttpStatusCode.Unauthorized);
 
+            await _redisCacheService.RemoveAsync($"OAuthAccessToken:{userId}");
+            await _redisCacheService.RemoveAsync($"OAuth:Google:Accesstoken:{userId}");
+            await _redisCacheService.RemoveAsync($"OAuthRefreshToken:{userId}");
+            await _oAuthProviderRepository.DisableOAuthAsync(Guid.Parse(userId), "Google");
+
             var tokenEndpoint = _configuration["OAuth:Google:TokenEndpoint"] ?? "https://oauth2.googleapis.com/token";
             var clientId = _configuration["OAuth:Google:ClientId"];
             var clientSecret = _configuration["OAuth:Google:ClientSecret"];
@@ -158,7 +164,7 @@ namespace Application.Service
                 try
                 {
                     token = JsonSerializer.Deserialize<TokenResponse>(tokenContent);
-                    await _redisCacheService.SetAsync($"OAuth:Google:Accesstoken:{userId}",token.access_token , TimeSpan.FromSeconds(token.expires_in));
+                    await _redisCacheService.SetAsync($"OAuth:Google:Accesstoken:{userId}", token.access_token, TimeSpan.FromSeconds(token.expires_in));
                 }
                 catch (Exception ex)
                 {
@@ -168,7 +174,9 @@ namespace Application.Service
             }
 
             if (token == null || string.IsNullOrEmpty(token.access_token))
-                return Result<string>.FailureResult("Invalid token response", string.Empty, System.Net.HttpStatusCode.BadRequest);
+                return Result<string>.FailureResult("Invalid access token response", string.Empty, System.Net.HttpStatusCode.BadRequest);
+            if (token == null || string.IsNullOrEmpty(token.refresh_token))
+                return Result<string>.FailureResult("Invalid refresh token response", string.Empty, System.Net.HttpStatusCode.BadRequest);
             #endregion End Token Handling
 
             #region Email Info
@@ -260,6 +268,7 @@ namespace Application.Service
                     ProviderUserId = providerUserId,
                     ProviderEmail = providerEmail,
                     DisplayName = userInfo?.Name,
+                    IsPrimary = true,
                 };
                 await _oAuthProviderRepository.AddAsync(oAuthProvider);
 
@@ -272,7 +281,7 @@ namespace Application.Service
                 });
 
                 await _redisCacheService.SetAsync($"OAuthAccessToken:{userId}", token.access_token, TimeSpan.FromSeconds(token.expires_in));
-                await _redisCacheService.SetAsync($"OAuthRefreshToken:{userId}", token.refresh_token ?? string.Empty, TimeSpan.FromDays(30));
+                await _redisCacheService.SetAsync($"OAuthRefreshToken:{userId}", token.refresh_token, TimeSpan.FromDays(30));
                 await _unitOfWork.SaveChangesAsync();
             }
             catch (Exception ex)
@@ -304,6 +313,100 @@ namespace Application.Service
             return Convert.FromBase64String(output);
         }
 
+
+        public async Task<Result<string>> Refresh(string sessionToken, string providerUserId, CancellationToken ct)
+        {
+            if (string.IsNullOrWhiteSpace(providerUserId))
+                return Result<string>.FailureResult("providerUserId is required", "PROVIDER_USER_ID_REQUIRED", System.Net.HttpStatusCode.BadRequest);
+
+            var userIdString = await ValidateClientAsync(sessionToken);
+            if (string.IsNullOrEmpty(userIdString) || !Guid.TryParse(userIdString, out var userId))
+                return Result<string>.FailureResult("User not authenticated", "UNAUTHORIZED", System.Net.HttpStatusCode.Unauthorized);
+
+            await _redisCacheService.RemoveAsync($"OAuthAccessToken:{userId}"); 
+            await _redisCacheService.RemoveAsync($"OAuth:Google:Accesstoken:{userId}");
+            await _redisCacheService.RemoveAsync($"OAuthRefreshToken:{userId}");
+
+            const string providerName = "Google";
+
+            var provider = await _oAuthProviderRepository.GetByProviderUserIdAsync(userId, providerName, providerUserId, ct);
+            if (provider == null)
+                return Result<string>.FailureResult("Provider not found for user", "PROVIDER_NOT_FOUND", System.Net.HttpStatusCode.NotFound);
+
+            await _oAuthProviderRepository.SetPrimaryAsync(userId, providerName, provider.Id, ct);
+            await _unitOfWork.SaveChangesAsync();
+
+            var tokenEntity = await _oAuthTokenRepository.GetLatestByProviderAsync(userId, provider.Id, ct);
+            if (tokenEntity == null || string.IsNullOrWhiteSpace(tokenEntity.RefreshToken))
+                return Result<string>.FailureResult("Refresh token not found for provider", "REFRESH_TOKEN_MISSING", System.Net.HttpStatusCode.NotFound);
+
+            await _redisCacheService.SetAsync($"OAuthRefreshToken:{userId}", tokenEntity.RefreshToken, TimeSpan.FromDays(30));
+
+            var token = await ExchangeRefreshTokenAsync(tokenEntity.RefreshToken, ct);
+            if (token == null || string.IsNullOrWhiteSpace(token.access_token))
+                return Result<string>.FailureResult("Failed to refresh access token", "TOKEN_EXCHANGE_FAILED", System.Net.HttpStatusCode.BadRequest);
+
+            var expiresInSeconds = token.expires_in > 0 ? token.expires_in : 3600;
+            var lifetime = TimeSpan.FromSeconds(expiresInSeconds);
+
+            await _redisCacheService.SetAsync($"OAuthAccessToken:{userId}", token.access_token, lifetime);
+            await _redisCacheService.SetAsync($"OAuth:Google:Accesstoken:{userId}", token.access_token, lifetime);
+
+            var payload = JsonSerializer.Serialize(new
+            {
+                status = "refreshed",
+                providerUserId,
+                expiresIn = expiresInSeconds
+            });
+
+            return Result<string>.SuccessResult(payload, "Primary provider updated and access token refreshed", System.Net.HttpStatusCode.OK);
+        }
+
+        private async Task<TokenResponse?> ExchangeRefreshTokenAsync(string refreshToken, CancellationToken ct)
+        {
+            var tokenEndpoint = _configuration["OAuth:Google:TokenEndpoint"] ?? "https://oauth2.googleapis.com/token";
+            var clientId = _configuration["OAuth:Google:ClientId"];
+            var clientSecret = _configuration["OAuth:Google:ClientSecret"];
+
+            if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
+                return null;
+
+            using var http = new HttpClient();
+            var request = new FormUrlEncodedContent(new[]
+            {
+                new KeyValuePair<string,string>("client_id", clientId),
+                new KeyValuePair<string,string>("client_secret", clientSecret),
+                new KeyValuePair<string,string>("grant_type", "refresh_token"),
+                new KeyValuePair<string,string>("refresh_token", refreshToken)
+            });
+
+            HttpResponseMessage response;
+            try
+            {
+                response = await http.PostAsync(tokenEndpoint, request, ct);
+            }
+            catch
+            {
+                return null;
+            }
+
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            var content = await response.Content.ReadAsStringAsync(ct);
+            try
+            {
+                return JsonSerializer.Deserialize<TokenResponse>(content, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         private sealed class TokenResponse
         {
             public string access_token { get; set; } = string.Empty;
@@ -311,7 +414,7 @@ namespace Application.Service
             public int expires_in { get; set; }
             public string scope { get; set; } = string.Empty;
             public string token_type { get; set; } = string.Empty;
-            public string id_token { get; set; } = string.Empty;    
+            public string id_token { get; set; } = string.Empty;
         }
 
         private sealed class UserInfoResponse

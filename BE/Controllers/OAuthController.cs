@@ -39,5 +39,10 @@ namespace BE.Controllers
         {
             return await HandleAsync(_OAuthProviderService.HandleCallbackAsync(code, state));
         }
+        [HttpGet("Refresh")]
+        public async Task<IActionResult> Refresh([FromQuery] string SessionToken, [FromQuery] string providerUserId, CancellationToken ct)
+        {
+            return await HandleAsync(_OAuthProviderService.Refresh(SessionToken, providerUserId, ct));
+        }
     }
 }

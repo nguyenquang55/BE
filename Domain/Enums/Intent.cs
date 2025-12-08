@@ -9,13 +9,15 @@ namespace Domain.Enums
     public enum Intent
     {
         access_email = 0,
-        create_event = 1,
-        delete_email = 2,
-        delete_event = 3,
-        forward_email = 4,
-        reply_email = 5,
-        search_event = 6,
-        send_email = 7,
-        update_event = 8
+        calendar_analysis = 1,
+        calendar_statistics = 2,
+        create_event = 3,
+        delete_email = 4,
+        delete_event = 5,
+        forward_email = 6,
+        reply_email = 7,
+        search_event = 8,
+        send_email = 9,
+        update_event = 10
     }
 }
