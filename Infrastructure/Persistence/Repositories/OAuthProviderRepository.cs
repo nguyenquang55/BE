@@ -13,7 +13,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Infrastructure.Persistence.Repositories
 {
-    class OAuthProviderRepository : Repository<OAuthProvider>, IOAuthProviderRepository
+    public class OAuthProviderRepository : Repository<OAuthProvider>, IOAuthProviderRepository
     {
         public OAuthProviderRepository(ApplicationDbContext context) : base(context)
         {
@@ -96,6 +96,15 @@ namespace Infrastructure.Persistence.Repositories
             {
                 entry.IsPrimary = entry.Id == providerId;
             }
+        }
+
+        public Task<OAuthProvider> GetPrimaryGoogleAccountAsync(Guid userId, CancellationToken ct = default)
+        {
+            if(userId == Guid.Empty) throw new ArgumentException("userId is required", nameof(userId));
+            var googleAccount = _context.OAuthProviders
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.UserId == userId && p.IsPrimary==true, ct);
+            return googleAccount;
         }
     }
 }

@@ -34,6 +34,7 @@ builder.Services.AddHttpClient<IGeminiClient, GeminiClient>();
 builder.Services.AddHttpClient<ICalendarService, CalendarService>();
 builder.Services.AddTransient<ICalendarService, CalendarService>();
 builder.Services.AddTransient<IOAuthRepository, OAuthRepository>();
+builder.Services.AddTransient<IOAuthProviderRepository, OAuthProviderRepository>();
 builder.Configuration.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
 
 builder.Services.AddDbContext<ApplicationDbContext>(opts =>

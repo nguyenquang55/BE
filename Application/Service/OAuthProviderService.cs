@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Authentication.OAuth;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Configuration;
 using Shared.Common;
+using StackExchange.Redis;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -326,6 +327,7 @@ namespace Application.Service
             await _redisCacheService.RemoveAsync($"OAuthAccessToken:{userId}"); 
             await _redisCacheService.RemoveAsync($"OAuth:Google:Accesstoken:{userId}");
             await _redisCacheService.RemoveAsync($"OAuthRefreshToken:{userId}");
+            await _redisCacheService.RemoveAsync($"ActivedGoogleAccount:{userId}");
 
             const string providerName = "Google";
 
@@ -349,6 +351,11 @@ namespace Application.Service
             var expiresInSeconds = token.expires_in > 0 ? token.expires_in : 3600;
             var lifetime = TimeSpan.FromSeconds(expiresInSeconds);
 
+
+            var primaryGoogleAccount = _oAuthProviderRepository.GetPrimaryGoogleAccountAsync(userId);
+
+
+            await _redisCacheService.SetAsync($"ActivedGoogleAccount:{userId}", primaryGoogleAccount, TimeSpan.FromDays(8));
             await _redisCacheService.SetAsync($"OAuthAccessToken:{userId}", token.access_token, lifetime);
             await _redisCacheService.SetAsync($"OAuth:Google:Accesstoken:{userId}", token.access_token, lifetime);
 

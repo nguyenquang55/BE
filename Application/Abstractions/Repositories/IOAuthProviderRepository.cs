@@ -17,5 +17,6 @@ namespace Application.Abstractions.Repositories
         Task DisableOAuthAsync(Guid userId, string provider, CancellationToken ct = default);
         Task<OAuthProvider?> GetByProviderUserIdAsync(Guid userId, string provider, string providerUserId, CancellationToken ct = default);
         Task SetPrimaryAsync(Guid userId, string provider, Guid providerId, CancellationToken ct = default);
+        Task<OAuthProvider> GetPrimaryGoogleAccountAsync(Guid userId, CancellationToken ct = default);
     }
 }

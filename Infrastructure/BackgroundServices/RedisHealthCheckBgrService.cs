@@ -28,7 +28,7 @@ namespace Infrastructure.BackgroundServices
                     DateTime Time = DateTime.Now;
                     _logger.LogWarning($"Redis disconnected at {Time}!");
                 }
-                await Task.Delay(5000, stoppingToken);
+                await Task.Delay(50000, stoppingToken);
             }
         }
     }

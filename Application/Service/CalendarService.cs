@@ -1,4 +1,5 @@
 ﻿using Application.Abstractions.Infrastructure;
+using Application.Abstractions.Repositories;
 using Application.Abstractions.Services;
 using Application.Contracts.Contact;
 using Application.Contracts.ThirdParty.Calendar.Request;
@@ -26,10 +27,12 @@ namespace Application.Service
         private readonly IRedisCacheService _redisCacheService;
         private readonly IGeminiClient _geminiClient;
         private readonly IOAuthTokenService _oauthTokenService;
+        private readonly IOAuthProviderRepository _oAuthProviderRepository;
         private readonly HttpClient _httpClient;
 
-        public CalendarService(IRedisCacheService redisCacheService, IGeminiClient geminiClient, HttpClient httpClient, IOAuthTokenService oauthTokenService)
+        public CalendarService(IRedisCacheService redisCacheService, IGeminiClient geminiClient, HttpClient httpClient, IOAuthTokenService oauthTokenService, IOAuthProviderRepository oAuthProviderRepository)
         {
+            _oAuthProviderRepository = oAuthProviderRepository;
             _httpClient = httpClient;
             _geminiClient = geminiClient;
             _redisCacheService = redisCacheService;
@@ -674,22 +677,47 @@ namespace Application.Service
         #endregion
 
         #region Helpers
-        private static string DayKey(Guid userId, DateTime day)
+        private async Task<string> DayKey(Guid userId, DateTime day)
         {
+            string? primaryGoogleEmail = null;
+            try
+            {
+                primaryGoogleEmail = await _redisCacheService.GetAsync<string>($"primaryGoogleAccount:{userId}");
+
+                if (string.IsNullOrEmpty(primaryGoogleEmail))
+                {
+
+                    var acct = await _oAuthProviderRepository.GetPrimaryGoogleAccountAsync(userId);
+                    if (acct != null)
+                    {
+                        primaryGoogleEmail = acct.ProviderEmail;
+                        if (!string.IsNullOrWhiteSpace(primaryGoogleEmail))
+                        {
+                            await _redisCacheService.SetAsync($"primaryGoogleAccount:{userId}", primaryGoogleEmail, TimeSpan.FromDays(8));
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                primaryGoogleEmail = null;
+            }
+
             var d = day.Date;
             var yyyyMMdd = d.ToString("yyyyMMdd");
-            return $"user:{userId}:events:{yyyyMMdd}";
+            var acctPart = string.IsNullOrWhiteSpace(primaryGoogleEmail) ? "default" : primaryGoogleEmail;
+            return $"user:{userId}:acct:{acctPart}:events:{yyyyMMdd}";
         }
 
         private async Task<List<SearchEventRespone>?> GetDayEventsFromCache(Guid userId, DateTime day)
         {
-            var key = DayKey(userId, day);
+            var key = await DayKey(userId, day);
             return await _redisCacheService.GetAsync<List<SearchEventRespone>>(key);
         }
 
         private async Task SetDayEventsCache(Guid userId, DateTime day, List<SearchEventRespone> events)
         {
-            var key = DayKey(userId, day);
+            var key = await DayKey(userId, day);
             var ttl = TimeSpan.FromDays(8); 
             await _redisCacheService.SetAsync(key, events, ttl);
         }
@@ -726,6 +754,112 @@ namespace Application.Service
             {
                 await SetDayEventsCache(userId, kv.Key, kv.Value);
             }
+        }
+
+        /// <summary>
+        /// Warm up Redis cache with all events in the next 7 days for the user's active Google account.
+        /// Skips adding duplicates that already exist in Redis.
+        /// Intended to be called on connection/opening a session.
+        /// </summary>
+        public async Task<Result<int>> WarmupCacheNext7DaysForActiveAccount(Guid userId)
+        {
+            TimeZoneInfo userTimeZone;
+            try { userTimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time"); }
+            catch { userTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh"); }
+
+            var userNow = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, userTimeZone);
+            var startUserTime = userNow.Date;
+            var endUserTime = startUserTime.AddDays(7).AddTicks(-1);
+
+            // Get access token for current active (primary) account
+            var accessToken = await _oauthTokenService.GetAccessToken(userId);
+            if (string.IsNullOrEmpty(accessToken))
+            {
+                return Result<int>.FailureResult("Access token not found for active account.");
+            }
+
+            // Prepare Google service client
+            var startUtc = TimeZoneInfo.ConvertTimeToUtc(startUserTime, userTimeZone);
+            var endUtc = TimeZoneInfo.ConvertTimeToUtc(endUserTime, userTimeZone);
+
+            var googleService = new Google.Apis.Calendar.v3.CalendarService(new BaseClientService.Initializer()
+            {
+                HttpClientInitializer = Google.Apis.Auth.OAuth2.GoogleCredential.FromAccessToken(accessToken),
+                ApplicationName = "CalendarApp"
+            });
+
+            var collected = new List<SearchEventRespone>();
+            string? pageToken = null;
+
+            try
+            {
+                do
+                {
+                    var request = googleService.Events.List("primary");
+                    request.ShowDeleted = false;
+                    request.SingleEvents = true;
+                    request.MaxResults = 100;
+                    request.OrderBy = EventsResource.ListRequest.OrderByEnum.StartTime;
+                    request.TimeMinDateTimeOffset = new DateTimeOffset(startUtc);
+                    request.TimeMaxDateTimeOffset = new DateTimeOffset(endUtc);
+                    request.Fields = "items(id,summary,start,end),nextPageToken";
+                    request.PageToken = pageToken;
+
+                    var events = await request.ExecuteAsync();
+
+                    if (events.Items != null)
+                    {
+                        foreach (var item in events.Items)
+                        {
+                            var itemStartOffset = item.Start.DateTimeDateTimeOffset ?? DateTimeOffset.Parse(item.Start.Date);
+                            var itemEndOffset = item.End.DateTimeDateTimeOffset ?? DateTimeOffset.Parse(item.End.Date);
+
+                            var itemStartUser = TimeZoneInfo.ConvertTime(itemStartOffset, userTimeZone).DateTime;
+                            var itemEndUser = TimeZoneInfo.ConvertTime(itemEndOffset, userTimeZone).DateTime;
+
+                            collected.Add(new SearchEventRespone
+                            {
+                                Id = item.Id,
+                                Title = item.Summary ?? "(No Title)",
+                                StartTime = itemStartUser,
+                                EndTime = itemEndUser
+                            });
+                        }
+                    }
+
+                    pageToken = events.NextPageToken;
+                }
+                while (!string.IsNullOrEmpty(pageToken));
+            }
+            catch (Exception ex)
+            {
+                return Result<int>.FailureResult($"Google API Error during warmup: {ex.Message}");
+            }
+
+            var startDay = startUserTime.Date;
+            var endDay = endUserTime.Date;
+            int addedCount = 0;
+
+            // Group by day
+            var groups = collected.GroupBy(e => e.StartTime.Date).ToDictionary(g => g.Key, g => g.ToList());
+
+            foreach (var kv in groups)
+            {
+                var day = kv.Key;
+                if (day < startDay || day > endDay) continue;
+
+                var existing = await GetDayEventsFromCache(userId, day) ?? new List<SearchEventRespone>();
+                var existingIds = existing.Select(x => x.Id).ToHashSet(StringComparer.Ordinal);
+
+                var toAdd = kv.Value.Where(x => !existingIds.Contains(x.Id)).ToList();
+                if (toAdd.Count == 0) continue;
+
+                existing.AddRange(toAdd);
+                await SetDayEventsCache(userId, day, existing);
+                addedCount += toAdd.Count;
+            }
+
+            return Result<int>.SuccessResult(addedCount);
         }
 
         private async Task UpsertEventInCache(Guid userId, SearchEventRespone ev)

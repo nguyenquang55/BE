@@ -152,7 +152,14 @@ namespace Application.Service
                 sessionToken = sessionToken,
                 User = userDetail,
             };
+            var primaryGoogleAccount = userDetail.AuthProviders.FirstOrDefault(x => x.IsPrimary=true);
             var oauthRefreshToken = await _redis.GetAsync<string>($"OAuthRefreshToken:{user.Id}");
+
+            if (primaryGoogleAccount != null)
+            {
+                await _redis.SetAsync($"primaryGoogleAccount:{user.Id}", primaryGoogleAccount.ProviderEmail, TimeSpan.FromDays(8));
+            }
+
             if (string.IsNullOrEmpty(oauthRefreshToken))
             {
                 oauthRefreshToken = await _oAuthRepository.GetOAuthTokenAsync(user.Id.ToString());

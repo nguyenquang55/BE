@@ -17,24 +17,35 @@ namespace BE.Hubs
         private readonly INotificationHubContext _notificationHubContext;
         private readonly IRedisCacheService _redisCacheService;
         private readonly IRoutingStore _routingStore;
+        private readonly ICalendarService _calendarService;
 
         private readonly IPublishEndpoint _publisher;
-        public NotificationHub(IMessageEnqueueService enqueueService, INotificationHubContext notificationHubContext, IRoutingStore routingStore, IPublishEndpoint publisher, IRedisCacheService redisCacheService)
+        public NotificationHub(IMessageEnqueueService enqueueService, INotificationHubContext notificationHubContext, IRoutingStore routingStore, IPublishEndpoint publisher, IRedisCacheService redisCacheService, ICalendarService calendarService)
         {
             _enqueueService = enqueueService;
             _redisCacheService = redisCacheService;
             _notificationHubContext = notificationHubContext;
             _routingStore = routingStore;
             _publisher = publisher;
+            _calendarService = calendarService;
         }
         public override async Task OnConnectedAsync()
         {
-            var userId = Context.UserIdentifier;
             var connectionId = Context.ConnectionId;
             var query = Context.GetHttpContext()?.Request.Query;
             string token = query?["sessionToken"];
-            var Userid = _redisCacheService.GetAsync<string>($"UserID:{token}").Result;
+            var userId = _redisCacheService.GetAsync<string>($"UserID:{token}").Result;
+            await _redisCacheService.RemoveAsync($"token:{userId}");
+            await _redisCacheService.SetAsync($"connectionId:{userId}", connectionId!, TimeSpan.FromDays(8));
 
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(userId))
+                {
+                    await _calendarService.WarmupCacheNext7DaysForActiveAccount(Guid.Parse(userId));
+                }
+            }
+            catch {}
         }
         public override async Task OnDisconnectedAsync(System.Exception? exception)
         {
