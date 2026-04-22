@@ -3,7 +3,7 @@ using Application.Abstractions.Infrastructure;
 using Application.Abstractions.Repositories;
 using Application.Abstractions.Services;
 using Application.Service;
-using Ecom.Infrastructure.Persistence;
+using Infrastructure.Persistence;
 using Infrastructure.Cache;
 using Infrastructure.DI;
 using Infrastructure.Model;
@@ -44,7 +44,7 @@ builder.Services.AddMassTransit(x =>
 {
 	x.AddConsumer<Worker.Consumers.UserMessageSubmittedConsumer>();
 	x.AddConsumer<Worker.Consumers.UserPreviewDecisionConsumer>();
-	x.UsingRabbitMq((context, cfgMq) =>
+    x.UsingRabbitMq((context, cfgMq) =>
 	{
 		var mqHost = builder.Configuration.GetValue<string>("RabbitMq:Host", "localhost");
 		var mqUser = builder.Configuration.GetValue<string>("RabbitMq:Username", "guest");
@@ -56,9 +56,10 @@ builder.Services.AddMassTransit(x =>
 		else
 			cfgMq.Host(mqHost, mqVHost, h => { h.Username(mqUser); h.Password(mqPass); });
 
-		cfgMq.ReceiveEndpoint("user.msg.submitted.queue", e =>
+		//cfgMq.UseXmlSerializer();
+        cfgMq.ReceiveEndpoint("user.msg.submitted.queue", e =>
 		{
-			e.PrefetchCount = 1; // sequential processing
+            e.PrefetchCount = 1; // sequential processing
 			e.ConfigureConsumer<Worker.Consumers.UserMessageSubmittedConsumer>(context);
 		});
 

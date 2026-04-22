@@ -1,7 +1,7 @@
 ﻿using Application.Abstractions.Common;
 using Application.Abstractions.Infrastructure;
 using Application.Abstractions.Repositories;
-using Ecom.Infrastructure.Persistence;
+using BE.Infrastructure.Persistence;
 using Infrastructure.Cache;
 using Infrastructure.Persistence.DatabaseContext;
 using Infrastructure.Persistence.JWT;

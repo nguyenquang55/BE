@@ -12,7 +12,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Threading.Tasks;
 
-namespace Ecom.Infrastructure.Persistence
+namespace BE.Infrastructure.Persistence
 {
     public class UnitOfWork : IUnitOfWork, IDisposable
     {

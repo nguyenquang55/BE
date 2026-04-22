@@ -1,6 +1,6 @@
 ﻿using Domain.Entities;
 using Domain.Entities.Identity;
-using Ecom.Infrastructure.Persistence;
+using BE.Infrastructure.Persistence;
 using Infrastructure.Persistence.DatabaseContext;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
