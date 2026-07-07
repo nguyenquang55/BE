@@ -1,8 +1,9 @@
-﻿using MassTransit;
+using MassTransit;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using RabbitMQ.Client;
 using System;
+using Infrastructure.Messaging.Consumers;
 
 namespace Infrastructure.Messaging
 {
@@ -137,6 +138,47 @@ namespace Infrastructure.Messaging
                     }
                 });
             });
+        }
+
+        /// <summary>
+        /// Đăng ký MassTransit cho Web API (BE) để lắng nghe và định tuyến kết quả xử lý.
+        /// </summary>
+        public static IServiceCollection AddWebApiMessaging(this IServiceCollection services, IConfiguration configuration)
+        {
+            services.AddMassTransit(x =>
+            {
+                x.AddConsumer<UserMessageProcessedConsumer>();
+                x.AddConsumer<UserMessagePreviewConsumer>();
+
+                x.UsingRabbitMq((context, cfgMq) =>
+                {
+                    var mqHost = configuration.GetValue<string>("RabbitMq:Host") ?? "localhost";
+                    var mqUser = configuration.GetValue<string>("RabbitMq:Username") ?? "guest";
+                    var mqPass = configuration.GetValue<string>("RabbitMq:Password") ?? "guest";
+                    var mqVHost = configuration.GetValue<string>("RabbitMq:VirtualHost") ?? "/";
+
+                    if (mqHost.Contains("://"))
+                    {
+                        cfgMq.Host(new Uri(mqHost), h => { h.Username(mqUser); h.Password(mqPass); });
+                    }
+                    else
+                    {
+                        cfgMq.Host(mqHost, mqVHost, h => { h.Username(mqUser); h.Password(mqPass); });
+                    }
+
+                    cfgMq.ReceiveEndpoint("user.msg.processed.queue", e =>
+                    {
+                        e.ConfigureConsumer<UserMessageProcessedConsumer>(context);
+                    });
+
+                    cfgMq.ReceiveEndpoint("user.msg.preview.queue", e =>
+                    {
+                        e.ConfigureConsumer<UserMessagePreviewConsumer>(context);
+                    });
+                });
+            });
+
+            return services;
         }
     }
 }
