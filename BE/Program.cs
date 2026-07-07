@@ -1,6 +1,5 @@
 using Infrastructure.DI;
-using BE.Extensions;
-using Infrastructure.Messaging;
+using BE.DI;
 
 var builder = WebApplication.CreateBuilder(args);
 

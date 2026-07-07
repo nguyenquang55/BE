@@ -5,7 +5,7 @@ using RabbitMQ.Client;
 using System;
 using Infrastructure.Messaging.Consumers;
 
-namespace Infrastructure.Messaging
+namespace Infrastructure.DI
 {
     /// <summary>
     /// Lớp cấu hình tĩnh cho MassTransit, tích hợp với RabbitMQ để quản lý messaging trong hệ thống.
@@ -128,10 +128,10 @@ namespace Infrastructure.Messaging
 
                             e.Bind(exchangeName, b =>
                             {
-                                b.ExchangeType = exchangeType;
-                                if (!string.IsNullOrWhiteSpace(routingKey))
-                                    b.RoutingKey = routingKey;
-                            });
+                                    b.ExchangeType = exchangeType;
+                                    if (!string.IsNullOrWhiteSpace(routingKey))
+                                        b.RoutingKey = routingKey;
+                                });
 
                             configurePerEndpoint?.Invoke(context, e, ex.Key);
                         });

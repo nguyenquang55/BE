@@ -12,7 +12,7 @@ using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace BE.Extensions
+namespace BE.DI
 {
     public static class WebServiceRegistration
     {

@@ -6,7 +6,6 @@ using System.Text.Json;
 using Shared.Common;
 using MassTransit;
 using Shared.Contracts.Messaging;
-using Org.BouncyCastle.Asn1.Cms;
 using Application.Abstractions.Infrastructure;
 
 namespace BE.Hubs
